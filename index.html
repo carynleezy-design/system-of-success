@@ -527,11 +527,12 @@ function renderReview(){
     const c = colorOf(r);
     const doneToday = (r.completions||{})[t] || [];
     for(const w of (r.weekly||[])){
+      const ed = `editWeekly('${r.id}','${w.id}')`;
       if(w.day === dowT){
-        const item = {label:w.text, src:r.name, color:c, weekly:true, toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`};
+        const item = {label:w.text, src:r.name, color:c, weekly:true, toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`, edit:ed};
         if(doneToday.includes(w.id)) completed.push({...item, done:true}); else missed.push(item);
       }
-      if(w.day === dowTm) tomorrow.push({label:w.text, src:r.name, color:c, weekly:true});
+      if(w.day === dowTm) tomorrow.push({label:w.text, src:r.name, color:c, weekly:true, edit:ed});
     }
     for(const td of (r.adhoc||[])){
       const base = {label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes,
