@@ -25,7 +25,7 @@ input,select,textarea{font-family:inherit;font-size:15px;padding:10px 12px;borde
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
 
 /* header */
-header{padding:18px 18px 10px;display:flex;justify-content:space-between;align-items:center;max-width:760px;margin:0 auto}
+header{padding:18px 18px 10px;display:flex;justify-content:space-between;align-items:center;max-width:1080px;margin:0 auto}
 header h1{font-size:20px;font-weight:700}
 header .sub{font-size:12.5px;color:var(--muted);margin-top:2px}
 .signout{background:none;border:none;color:var(--muted);font-size:12.5px;text-decoration:underline}
@@ -36,7 +36,7 @@ nav button{background:none;border:none;font-size:11.5px;color:var(--muted);displ
 nav button .ico{font-size:20px}
 nav button.active{color:var(--accent);background:var(--accent-soft)}
 
-main{max-width:760px;margin:0 auto;padding:6px 16px}
+main{max-width:1080px;margin:0 auto;padding:6px 16px}
 .view{display:none}
 .view.active{display:block}
 
@@ -119,6 +119,17 @@ main{max-width:760px;margin:0 auto;padding:6px 16px}
 .gbtn{display:inline-flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--border);border-radius:12px;padding:12px 22px;font-size:15px;font-weight:600;margin-top:6px}
 .hide{display:none!important}
 .syncdot{font-size:11.5px;color:var(--green);font-weight:600}
+
+/* v2: grid blocks, colour coding, collapsible sections */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;align-items:start}
+.grid .card{margin-bottom:0}
+.narrow{max-width:760px;margin:0 auto}
+.colordot{display:inline-block;width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.src-chip{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 9px;border-radius:999px;background:#f1efe8;color:#555}
+.collapse-btn{background:none;border:none;width:100%;text-align:left;font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px;padding:0;display:flex;justify-content:space-between;align-items:center}
+.swatches{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0}
+.swatches span{width:28px;height:28px;border-radius:50%;cursor:pointer;border:3px solid transparent;display:inline-block}
+.swatches span.sel{border-color:var(--ink)}
 </style>
 </head>
 <body>
@@ -214,7 +225,11 @@ function deadlineBadge(s, done){
 let db=null, auth=null, user=null;
 let resps=[], projs=[];   // live data
 let unsubs=[];
-let showArchivedResp=false, showArchivedProj=false, showDoneProj={};
+let showArchivedResp=false, showArchivedProj=false, showDoneProj={}, expandedWeekly={};
+const PALETTE = ["#5b6ee8","#2fa36b","#c98a1b","#d9534f","#8e5be8","#1f9e9e","#d15b9e","#6b7280"];
+const colorOf = x => x.color || PALETTE[0];
+const dot = c => `<span class="colordot" style="background:${c}"></span>`;
+const srcChip = (name,c) => `<span class="src-chip">${dot(c)}${esc(name)}</span>`;
 
 function getStoredConfig(){
   try{ return JSON.parse(localStorage.getItem("lp_firebase_config")||"null"); }catch(e){ return null; }
@@ -381,7 +396,7 @@ function renderToday(){
 
   if(total===0){
     h += `<div class="big-empty"><div class="e">🎈</div>Nothing scheduled for today.<br>Add weekly rhythms under <b>Duties</b> or tasks under <b>Projects</b>.</div>`;
-    $("view-today").innerHTML = h; return;
+    $("view-today").innerHTML = `<div class="narrow">${h}</div>`; return;
   }
 
   // group weekly + adhoc by responsibility
@@ -389,7 +404,8 @@ function renderToday(){
   items.weekly.forEach(x => (byResp[x.resp.id] = byResp[x.resp.id]||{resp:x.resp, weekly:[], todos:[]}).weekly.push(x));
   items.respTodos.forEach(x => (byResp[x.resp.id] = byResp[x.resp.id]||{resp:x.resp, weekly:[], todos:[]}).todos.push(x));
   for(const g of Object.values(byResp)){
-    h += `<div class="card"><h3>🔄 ${esc(g.resp.name)}</h3>`;
+    const c = colorOf(g.resp);
+    h += `<div class="card" style="border-top:4px solid ${c}"><h3>${dot(c)} ${esc(g.resp.name)}</h3>`;
     for(const x of g.weekly){
       h += `<div class="task ${x.done?"done":""}">
         <input type="checkbox" ${x.done?"checked":""} onchange="toggleWeekly('${x.resp.id}','${x.task.id}','${t}')">
@@ -399,7 +415,9 @@ function renderToday(){
     for(const x of g.todos){
       h += `<div class="task">
         <input type="checkbox" onchange="toggleAdhoc('${x.resp.id}','${x.todo.id}')">
-        <div class="txt">${esc(x.todo.text)} ${deadlineBadge(x.todo.deadline)}</div>
+        <div class="txt">${esc(x.todo.text)} ${deadlineBadge(x.todo.deadline)}
+          ${x.todo.notes ? `<div class="notes">${esc(x.todo.notes)}</div>`:""}
+        </div>
       </div>`;
     }
     h += `</div>`;
@@ -407,7 +425,8 @@ function renderToday(){
   const byProj = {};
   items.projTodos.forEach(x => (byProj[x.proj.id] = byProj[x.proj.id]||{proj:x.proj, todos:[]}).todos.push(x));
   for(const g of Object.values(byProj)){
-    h += `<div class="card"><h3>🚀 ${esc(g.proj.name)}</h3>`;
+    const c = colorOf(g.proj);
+    h += `<div class="card" style="border-top:4px solid ${c}"><h3>${dot(c)} ${esc(g.proj.name)}</h3>`;
     for(const x of g.todos){
       h += `<div class="task">
         <input type="checkbox" onchange="toggleProjTodo('${g.proj.id}','${x.todo.id}')">
@@ -418,39 +437,59 @@ function renderToday(){
     }
     h += `</div>`;
   }
-  $("view-today").innerHTML = h;
+  $("view-today").innerHTML = `<div class="narrow">${h}</div>`;
 }
 
 /* ===================== REVIEW view ===================== */
 function renderReview(){
   const t = todayStr(), tm = tomorrowStr();
-  const completed = [], missed = [], tomorrow = [];
+  const dowT = new Date().getDay(), dowTm = new Date(tm+"T00:00:00").getDay();
+  const completed = [], missed = [], tomorrow = [], master = [];
 
   for(const r of resps.filter(x=>!x.archived)){
+    const c = colorOf(r);
     const doneToday = (r.completions||{})[t] || [];
     for(const w of (r.weekly||[])){
-      if(w.day === new Date().getDay()){
-        (doneToday.includes(w.id) ? completed : missed).push({label:w.text, src:r.name, kind:"weekly"});
+      if(w.day === dowT){
+        const item = {label:w.text, src:r.name, color:c, weekly:true, toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`};
+        if(doneToday.includes(w.id)) completed.push({...item, done:true}); else missed.push(item);
       }
-      if(w.day === new Date(tm+"T00:00:00").getDay()){
-        tomorrow.push({label:w.text, src:r.name, kind:"weekly"});
-      }
+      if(w.day === dowTm) tomorrow.push({label:w.text, src:r.name, color:c, weekly:true});
     }
     for(const td of (r.adhoc||[])){
-      if(td.done && td.doneDate===t) completed.push({label:td.text, src:r.name, kind:"todo"});
-      if(!td.done && td.deadline && td.deadline<=t) missed.push({label:td.text, src:r.name, kind:"todo", deadline:td.deadline});
-      if(!td.done && td.deadline===tm) tomorrow.push({label:td.text, src:r.name, kind:"todo"});
+      const base = {label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes,
+        toggle:`toggleAdhoc('${r.id}','${td.id}')`, edit:`editAdhoc('${r.id}','${td.id}')`};
+      if(td.done && td.doneDate===t) completed.push({...base, done:true});
+      if(!td.done){
+        master.push(base);
+        if(td.deadline && td.deadline<=t) missed.push(base);
+        if(td.deadline===tm) tomorrow.push(base);
+      }
     }
   }
   for(const p of projs.filter(x=>!x.archived)){
+    const c = colorOf(p);
     for(const td of (p.todos||[])){
-      if(td.done && td.doneDate===t) completed.push({label:td.text, src:p.name, kind:"todo"});
-      if(!td.done && td.deadline && td.deadline<=t) missed.push({label:td.text, src:p.name, kind:"todo", deadline:td.deadline});
-      if(!td.done && td.deadline===tm) tomorrow.push({label:td.text, src:p.name, kind:"todo"});
+      const base = {label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes,
+        toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`};
+      if(td.done && td.doneDate===t) completed.push({...base, done:true});
+      if(!td.done){
+        master.push(base);
+        if(td.deadline && td.deadline<=t) missed.push(base);
+        if(td.deadline===tm) tomorrow.push(base);
+      }
     }
   }
+  master.sort((a,b)=>(a.deadline||"9999-99-99").localeCompare(b.deadline||"9999-99-99"));
 
-  const row = i => `<div class="task"><div class="txt">${esc(i.label)}<div class="meta">${esc(i.src)}${i.deadline && i.deadline<t ? ` · was due ${fmtDate(i.deadline)}`:""}</div></div></div>`;
+  const row = i => `<div class="task ${i.done?"done":""}">
+    ${i.toggle ? `<input type="checkbox" ${i.done?"checked":""} onchange="${i.toggle}">` : ""}
+    <div class="txt">${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
+      <div class="meta">${srcChip(i.src, i.color)}${i.weekly ? " · weekly" : ""}</div>
+      ${i.notes ? `<div class="notes">${esc(i.notes)}</div>` : ""}
+    </div>
+    ${i.edit ? `<button class="iconbtn" title="Edit / change deadline" onclick="${i.edit}">✏️</button>` : ""}
+  </div>`;
   let h = `<div class="greet"><div class="date">End-of-day review</div><h2>How today went 🌙</h2></div>`;
 
   h += `<div class="card review-block"><h4>✅ Completed today <span class="count-chip">${completed.length}</span></h4>`;
@@ -465,7 +504,11 @@ function renderReview(){
   h += tomorrow.length ? tomorrow.map(row).join("") : `<div class="empty">Nothing scheduled for tomorrow yet.</div>`;
   h += `</div>`;
 
-  $("view-review").innerHTML = h;
+  h += `<div class="card review-block"><h4>📋 Master list — all open to-dos <span class="count-chip">${master.length}</span></h4>`;
+  h += master.length ? master.map(row).join("") : `<div class="empty">No open to-dos anywhere. Impressive!</div>`;
+  h += `</div>`;
+
+  $("view-review").innerHTML = `<div class="narrow">${h}</div>`;
 }
 
 /* ===================== RESPONSIBILITIES view ===================== */
@@ -479,42 +522,26 @@ function renderResp(){
   const active = resps.filter(r=>!r.archived);
   if(!active.length) h += `<div class="big-empty"><div class="e">🗂️</div>No responsibilities yet. Add one above to get started.</div>`;
 
+  h += `<div class="grid">`;
   for(const r of active){
-    h += `<div class="card"><div class="card-top"><h3>${esc(r.name)}</h3>
+    const c = colorOf(r);
+    h += `<div class="card" style="border-top:4px solid ${c}"><div class="card-top"><h3>${esc(r.name)}</h3>
       <div class="actions">
-        <button class="iconbtn" title="Rename" onclick="editRespName('${r.id}')">✏️</button>
+        <button class="iconbtn" title="Edit name & colour" onclick="editRespName('${r.id}')">✏️</button>
         <button class="iconbtn" title="Archive" onclick="archiveResp('${r.id}',true)">📦</button>
       </div></div>`;
 
-    /* weekly rhythm */
-    h += `<div class="section-label">Weekly rhythm</div>`;
-    const weekly = r.weekly||[];
-    if(!weekly.length) h += `<div class="empty">No weekly tasks yet.</div>`;
-    for(const d of DAY_ORDER){
-      const dayTasks = weekly.filter(w=>w.day===d);
-      if(!dayTasks.length) continue;
-      h += `<div class="day-head">${DAYS[d]}</div>`;
-      for(const w of dayTasks){
-        h += `<div class="task"><div class="txt">${esc(w.text)}</div>
-          <button class="iconbtn" onclick="editWeekly('${r.id}','${w.id}')">✏️</button>
-          <button class="iconbtn" onclick="delWeekly('${r.id}','${w.id}')">🗑️</button></div>`;
-      }
-    }
-    h += `<div class="addrow">
-      <select class="daysel" id="wday-${r.id}">${DAY_ORDER.map(d=>`<option value="${d}">${DAYS[d].slice(0,3)}</option>`).join("")}</select>
-      <input id="wtext-${r.id}" placeholder="Weekly task" onkeydown="if(event.key==='Enter')addWeekly('${r.id}')">
-      <button class="btn small" onclick="addWeekly('${r.id}')">Add</button>
-    </div>`;
-
-    /* adhoc todos */
+    /* adhoc todos — the main content of the block */
     h += `<div class="section-label">One-off to-dos</div>`;
     const adhoc = (r.adhoc||[]).slice().sort((a,b)=> (a.done-b.done) || (a.deadline||"9999").localeCompare(b.deadline||"9999"));
     if(!adhoc.length) h += `<div class="empty">No one-off to-dos.</div>`;
     for(const td of adhoc){
       h += `<div class="task ${td.done?"done":""}">
         <input type="checkbox" ${td.done?"checked":""} onchange="toggleAdhoc('${r.id}','${td.id}')">
-        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, td.done)}</div>
-        <button class="iconbtn" onclick="editAdhoc('${r.id}','${td.id}')">✏️</button>
+        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, td.done)}
+          ${td.notes ? `<div class="notes">${esc(td.notes)}</div>`:""}
+        </div>
+        <button class="iconbtn" title="Edit / notes" onclick="editAdhoc('${r.id}','${td.id}')">✏️</button>
         <button class="iconbtn" onclick="delAdhoc('${r.id}','${td.id}')">🗑️</button>
       </div>`;
     }
@@ -523,8 +550,32 @@ function renderResp(){
       <input type="date" id="adate-${r.id}">
       <button class="btn small" onclick="addAdhoc('${r.id}')">Add</button>
     </div>`;
+
+    /* weekly rhythm — collapsed by default */
+    const weekly = r.weekly||[];
+    const openW = !!expandedWeekly[r.id];
+    h += `<button class="collapse-btn" onclick="expandedWeekly['${r.id}']=!expandedWeekly['${r.id}'];renderResp()">Weekly rhythm (${weekly.length}) <span>${openW?"▾":"▸"}</span></button>`;
+    if(openW){
+      if(!weekly.length) h += `<div class="empty">No weekly tasks yet.</div>`;
+      for(const d of DAY_ORDER){
+        const dayTasks = weekly.filter(w=>w.day===d);
+        if(!dayTasks.length) continue;
+        h += `<div class="day-head">${DAYS[d]}</div>`;
+        for(const w of dayTasks){
+          h += `<div class="task"><div class="txt">${esc(w.text)}</div>
+            <button class="iconbtn" onclick="editWeekly('${r.id}','${w.id}')">✏️</button>
+            <button class="iconbtn" onclick="delWeekly('${r.id}','${w.id}')">🗑️</button></div>`;
+        }
+      }
+      h += `<div class="addrow">
+        <select class="daysel" id="wday-${r.id}">${DAY_ORDER.map(d=>`<option value="${d}">${DAYS[d].slice(0,3)}</option>`).join("")}</select>
+        <input id="wtext-${r.id}" placeholder="Weekly task" onkeydown="if(event.key==='Enter')addWeekly('${r.id}')">
+        <button class="btn small" onclick="addWeekly('${r.id}')">Add</button>
+      </div>`;
+    }
     h += `</div>`;
   }
+  h += `</div>`;
 
   const archived = resps.filter(r=>r.archived);
   if(archived.length){
@@ -552,7 +603,9 @@ function renderProj(){
   const active = projs.filter(p=>!p.archived);
   if(!active.length) h += `<div class="big-empty"><div class="e">🌊</div>No live projects — enjoy the calm, or start one above.</div>`;
 
+  h += `<div class="grid">`;
   for(const p of active){
+    const c = colorOf(p);
     const t = todayStr();
     let dl = "";
     if(p.deadline){
@@ -563,9 +616,9 @@ function renderProj(){
     }
     const todos = (p.todos||[]);
     const open = todos.filter(x=>!x.done), done = todos.filter(x=>x.done);
-    h += `<div class="card"><div class="card-top"><div><h3>${esc(p.name)}</h3><div class="deadline-line">${dl}</div></div>
+    h += `<div class="card" style="border-top:4px solid ${c}"><div class="card-top"><div><h3>${esc(p.name)}</h3><div class="deadline-line">${dl}</div></div>
       <div class="actions">
-        <button class="iconbtn" title="Edit" onclick="editProj('${p.id}')">✏️</button>
+        <button class="iconbtn" title="Edit name, deadline & colour" onclick="editProj('${p.id}')">✏️</button>
         <button class="iconbtn" title="Archive" onclick="archiveProj('${p.id}',true)">📦</button>
       </div></div>`;
 
@@ -599,6 +652,7 @@ function renderProj(){
     </div>`;
     h += `</div>`;
   }
+  h += `</div>`;
 
   const archived = projs.filter(p=>p.archived);
   if(archived.length){
@@ -621,14 +675,18 @@ function findProj(id){ return projs.find(p=>p.id===id); }
 function addResp(){
   const name = $("newRespName").value.trim();
   if(!name) return;
-  saveResp({id:uid(), name, archived:false, createdAt:Date.now(), weekly:[], adhoc:[], completions:{}});
+  const color = PALETTE[resps.length % PALETTE.length];
+  saveResp({id:uid(), name, color, archived:false, createdAt:Date.now(), weekly:[], adhoc:[], completions:{}});
   $("newRespName").value="";
 }
 function archiveResp(id, val){ const r=findResp(id); if(r){ r.archived=val; saveResp(r);} }
 function editRespName(id){
   const r=findResp(id); if(!r) return;
-  openModal("Rename responsibility", [{key:"name",label:"Name",type:"text",value:r.name}], v=>{
-    if(v.name.trim()){ r.name=v.name.trim(); saveResp(r); }
+  openModal("Edit responsibility", [
+    {key:"name",label:"Name",type:"text",value:r.name},
+    {key:"color",label:"Colour",type:"swatch",value:colorOf(r)}
+  ], v=>{
+    if(v.name.trim()){ r.name=v.name.trim(); r.color=v.color; saveResp(r); }
   });
 }
 function addWeekly(rid){
@@ -672,9 +730,10 @@ function editAdhoc(rid, tid){
   const td=(r.adhoc||[]).find(x=>x.id===tid); if(!td) return;
   openModal("Edit to-do", [
     {key:"text",label:"To-do",type:"text",value:td.text},
-    {key:"deadline",label:"Deadline",type:"date",value:td.deadline||""}
+    {key:"deadline",label:"Deadline",type:"date",value:td.deadline||""},
+    {key:"notes",label:"Notes",type:"textarea",value:td.notes||""}
   ], v=>{
-    if(v.text.trim()){ td.text=v.text.trim(); td.deadline=v.deadline; saveResp(r); }
+    if(v.text.trim()){ td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes; saveResp(r); }
   });
 }
 function delAdhoc(rid, tid){
@@ -693,7 +752,8 @@ function toggleAdhoc(rid, tid){
 function addProj(){
   const name=$("newProjName").value.trim(); if(!name) return;
   const deadline=$("newProjDate").value||"";
-  saveProj({id:uid(), name, deadline, archived:false, createdAt:Date.now(), todos:[]});
+  const color = PALETTE[projs.length % PALETTE.length];
+  saveProj({id:uid(), name, deadline, color, archived:false, createdAt:Date.now(), todos:[]});
   $("newProjName").value=""; $("newProjDate").value="";
 }
 function archiveProj(id, val){ const p=findProj(id); if(p){ p.archived=val; saveProj(p);} }
@@ -701,9 +761,10 @@ function editProj(id){
   const p=findProj(id); if(!p) return;
   openModal("Edit project", [
     {key:"name",label:"Project name",type:"text",value:p.name},
-    {key:"deadline",label:"Projected deadline",type:"date",value:p.deadline||""}
+    {key:"deadline",label:"Projected deadline",type:"date",value:p.deadline||""},
+    {key:"color",label:"Colour",type:"swatch",value:colorOf(p)}
   ], v=>{
-    if(v.name.trim()){ p.name=v.name.trim(); p.deadline=v.deadline; saveProj(p); }
+    if(v.name.trim()){ p.name=v.name.trim(); p.deadline=v.deadline; p.color=v.color; saveProj(p); }
   });
 }
 function addProjTodo(pid){
@@ -745,6 +806,7 @@ function openModal(title, fields, cb){
     let inp="";
     if(f.type==="select") inp=`<select id="mf-${i}">${f.options.map(o=>`<option value="${o.v}" ${o.v===f.value?"selected":""}>${o.l}</option>`).join("")}</select>`;
     else if(f.type==="textarea") inp=`<textarea id="mf-${i}" rows="4">${esc(f.value)}</textarea>`;
+    else if(f.type==="swatch") inp=`<div class="swatches" id="mf-${i}" data-value="${f.value}">${PALETTE.map(c=>`<span style="background:${c}" class="${c===f.value?"sel":""}" onclick="pickSwatch(this,'${c}')"></span>`).join("")}</div>`;
     else inp=`<input id="mf-${i}" type="${f.type}" value="${esc(f.value)}">`;
     return `<label>${f.label}</label>${inp}`;
   }).join("");
@@ -752,10 +814,16 @@ function openModal(title, fields, cb){
   setTimeout(()=>{ const el=$("mf-0"); if(el && modalFieldDefs[0].type==="text") el.focus(); },50);
 }
 function closeModal(){ $("modalBack").classList.remove("open"); modalCb=null; }
+function pickSwatch(el, c){
+  const p = el.parentElement;
+  p.dataset.value = c;
+  [...p.children].forEach(x=>x.classList.remove("sel"));
+  el.classList.add("sel");
+}
 function modalSave(){
   if(!modalCb) return;
   const v={};
-  modalFieldDefs.forEach((f,i)=>{ v[f.key]=$("mf-"+i).value; });
+  modalFieldDefs.forEach((f,i)=>{ v[f.key] = f.type==="swatch" ? $("mf-"+i).dataset.value : $("mf-"+i).value; });
   modalCb(v); closeModal();
 }
 
