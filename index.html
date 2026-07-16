@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1a1a2e">
+<title>Life Planner</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#f6f4ef; --card:#ffffff; --ink:#22222e; --muted:#8a8a99;
+  --accent:#5b6ee8; --accent-soft:#eef0fd; --green:#2fa36b; --green-soft:#e7f5ee;
+  --red:#d9534f; --red-soft:#fdeeee; --amber:#c98a1b; --amber-soft:#fdf4e3;
+  --border:#e8e5dd; --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;padding-bottom:90px}
+button{font-family:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:15px;padding:10px 12px;border:1.5px solid var(--border);border-radius:10px;background:#fff;width:100%;color:var(--ink)}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+
+/* header */
+header{padding:18px 18px 10px;display:flex;justify-content:space-between;align-items:center;max-width:760px;margin:0 auto}
+header h1{font-size:20px;font-weight:700}
+header .sub{font-size:12.5px;color:var(--muted);margin-top:2px}
+.signout{background:none;border:none;color:var(--muted);font-size:12.5px;text-decoration:underline}
+
+/* tabs */
+nav{position:fixed;bottom:0;left:0;right:0;background:var(--card);border-top:1px solid var(--border);display:flex;justify-content:space-around;padding:8px 4px calc(8px + env(safe-area-inset-bottom));z-index:50}
+nav button{background:none;border:none;font-size:11.5px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:3px;padding:4px 10px;border-radius:10px;min-width:64px}
+nav button .ico{font-size:20px}
+nav button.active{color:var(--accent);background:var(--accent-soft)}
+
+main{max-width:760px;margin:0 auto;padding:6px 16px}
+.view{display:none}
+.view.active{display:block}
+
+/* cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:14px}
+.card h3{font-size:16px;margin-bottom:2px}
+.section-label{font-size:11.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:16px 0 8px}
+.card .section-label:first-of-type{margin-top:10px}
+
+/* task rows */
+.task{display:flex;align-items:flex-start;gap:10px;padding:9px 2px;border-bottom:1px solid #f1efe8}
+.task:last-child{border-bottom:none}
+.task input[type=checkbox]{width:20px;height:20px;margin-top:1px;accent-color:var(--green);flex-shrink:0}
+.task .txt{flex:1;font-size:15px;line-height:1.35}
+.task.done .txt{text-decoration:line-through;color:var(--muted)}
+.task .meta{font-size:12px;color:var(--muted);margin-top:2px}
+.task .notes{font-size:13px;color:#6a6a78;background:#faf9f5;border-left:3px solid var(--border);padding:6px 9px;margin-top:6px;border-radius:0 8px 8px 0;white-space:pre-wrap}
+.badge{display:inline-block;font-size:11px;font-weight:600;padding:2px 8px;border-radius:999px;margin-left:6px;vertical-align:1px}
+.badge.due{background:var(--amber-soft);color:var(--amber)}
+.badge.overdue{background:var(--red-soft);color:var(--red)}
+.badge.ok{background:var(--green-soft);color:var(--green)}
+.badge.plain{background:var(--accent-soft);color:var(--accent)}
+
+.iconbtn{background:none;border:none;font-size:15px;color:var(--muted);padding:3px 5px;flex-shrink:0;opacity:.75}
+.iconbtn:hover{opacity:1}
+
+/* buttons */
+.btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:10px 16px;font-size:14.5px;font-weight:600}
+.btn.ghost{background:var(--accent-soft);color:var(--accent)}
+.btn.small{padding:7px 12px;font-size:13px}
+.btn.danger{background:var(--red-soft);color:var(--red)}
+.btn.full{width:100%}
+
+.addrow{display:flex;gap:8px;margin-top:10px}
+.addrow input,.addrow select{flex:1}
+.addrow input[type=date]{flex:0 0 138px}
+.addrow select.daysel{flex:0 0 108px}
+
+.empty{color:var(--muted);font-size:14px;padding:14px 4px;text-align:center}
+.big-empty{text-align:center;padding:44px 20px;color:var(--muted)}
+.big-empty .e{font-size:42px;margin-bottom:10px}
+
+.day-head{font-size:13px;font-weight:700;color:var(--accent);margin:12px 0 2px}
+.archived-toggle{background:none;border:none;color:var(--muted);font-size:13.5px;text-decoration:underline;margin:6px 0 14px;display:block}
+.arch-card{opacity:.72}
+.card-top{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.card-top .actions{display:flex;gap:2px;flex-shrink:0}
+.deadline-line{font-size:13px;color:var(--muted);margin-top:2px}
+
+/* today greeting */
+.greet{padding:8px 2px 14px}
+.greet .date{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.greet h2{font-size:22px;margin-top:3px}
+.progressbar{height:8px;background:#e9e6dd;border-radius:99px;margin-top:12px;overflow:hidden}
+.progressbar div{height:100%;background:var(--green);border-radius:99px;transition:width .3s}
+.progress-label{font-size:12.5px;color:var(--muted);margin-top:5px}
+
+/* review */
+.review-block{margin-bottom:6px}
+.review-block h4{font-size:14px;margin-bottom:6px;display:flex;align-items:center;gap:7px}
+.count-chip{font-size:11.5px;background:var(--accent-soft);color:var(--accent);border-radius:99px;padding:1px 8px;font-weight:700}
+
+/* modal */
+.modal-back{position:fixed;inset:0;background:rgba(20,20,30,.45);display:none;align-items:flex-end;justify-content:center;z-index:100}
+.modal-back.open{display:flex}
+.modal{background:#fff;border-radius:18px 18px 0 0;padding:20px 18px calc(22px + env(safe-area-inset-bottom));width:100%;max-width:560px;max-height:85vh;overflow-y:auto}
+@media(min-width:600px){.modal-back{align-items:center}.modal{border-radius:18px}}
+.modal h3{margin-bottom:14px}
+.modal label{font-size:12.5px;font-weight:600;color:var(--muted);display:block;margin:12px 0 5px}
+.modal .modal-actions{display:flex;gap:10px;margin-top:20px}
+.modal .modal-actions .btn{flex:1}
+
+/* setup + login screens */
+.gate{max-width:480px;margin:0 auto;padding:48px 22px;text-align:center}
+.gate .e{font-size:52px}
+.gate h2{margin:14px 0 8px}
+.gate p{color:var(--muted);font-size:14.5px;line-height:1.5;margin-bottom:16px}
+.gate textarea{height:150px;font-size:12.5px;font-family:ui-monospace,monospace;text-align:left}
+.gate .err{color:var(--red);font-size:13.5px;margin-top:10px}
+.gbtn{display:inline-flex;align-items:center;gap:10px;background:#fff;border:1.5px solid var(--border);border-radius:12px;padding:12px 22px;font-size:15px;font-weight:600;margin-top:6px}
+.hide{display:none!important}
+.syncdot{font-size:11.5px;color:var(--green);font-weight:600}
+</style>
+</head>
+<body>
+
+<!-- SETUP SCREEN (first run: paste Firebase config) -->
+<div id="setupScreen" class="gate hide">
+  <div class="e">🌱</div>
+  <h2>Welcome to your Life Planner</h2>
+  <p>One-time setup on this device: paste your <b>Firebase config</b> below (from the setup guide, Step 4). It looks like <i>const firebaseConfig = { apiKey: "..." ... }</i> — paste the whole thing.</p>
+  <textarea id="configInput" placeholder='const firebaseConfig = {
+  apiKey: "AIza...",
+  authDomain: "your-app.firebaseapp.com",
+  projectId: "your-app",
+  ...
+};'></textarea>
+  <div style="margin-top:12px"><button class="btn full" onclick="saveConfig()">Save & continue</button></div>
+  <div id="configErr" class="err"></div>
+</div>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen" class="gate hide">
+  <div class="e">🌱</div>
+  <h2>Life Planner</h2>
+  <p>Sign in with Google so your plan syncs across your laptop and phone — and only you can see it.</p>
+  <button class="gbtn" onclick="signIn()"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.1 18.9 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.1 5.7l6.2 5.2C41.4 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg> Sign in with Google</button>
+  <div id="loginErr" class="err"></div>
+  <p style="margin-top:26px"><button class="archived-toggle" style="margin:0 auto" onclick="resetConfig()">Use a different Firebase config</button></p>
+</div>
+
+<!-- APP -->
+<div id="app" class="hide">
+<header>
+  <div>
+    <h1>🌱 Life Planner</h1>
+    <div class="sub"><span id="userLabel"></span> · <span class="syncdot" id="syncDot">● synced</span></div>
+  </div>
+  <button class="signout" onclick="signOut()">sign out</button>
+</header>
+<main>
+  <div id="view-today" class="view active"></div>
+  <div id="view-review" class="view"></div>
+  <div id="view-resp" class="view"></div>
+  <div id="view-proj" class="view"></div>
+</main>
+<nav>
+  <button id="tab-today" class="active" onclick="switchTab('today')"><span class="ico">☀️</span>Today</button>
+  <button id="tab-review" onclick="switchTab('review')"><span class="ico">🌙</span>Review</button>
+  <button id="tab-resp" onclick="switchTab('resp')"><span class="ico">🔄</span>Duties</button>
+  <button id="tab-proj" onclick="switchTab('proj')"><span class="ico">🚀</span>Projects</button>
+</nav>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-back" id="modalBack" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h3 id="modalTitle"></h3>
+    <div id="modalFields"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn" onclick="modalSave()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===================== helpers ===================== */
+const DAYS = ["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const DAY_ORDER = [1,2,3,4,5,6,0]; // Mon..Sun
+const $ = id => document.getElementById(id);
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const esc = s => (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function dstr(d){ const p=n=>String(n).padStart(2,"0"); return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+function todayStr(){ return dstr(new Date()); }
+function tomorrowStr(){ const d=new Date(); d.setDate(d.getDate()+1); return dstr(d); }
+function fmtDate(s){
+  if(!s) return "";
+  const d = new Date(s+"T00:00:00");
+  if(isNaN(d)) return s;
+  const t = todayStr(), tm = tomorrowStr();
+  if(s===t) return "today";
+  if(s===tm) return "tomorrow";
+  return d.toLocaleDateString(undefined,{day:"numeric",month:"short"}) + (d.getFullYear()!==new Date().getFullYear() ? " "+d.getFullYear() : "");
+}
+function deadlineBadge(s, done){
+  if(!s || done) return "";
+  const t = todayStr();
+  if(s < t)  return `<span class="badge overdue">overdue · ${fmtDate(s)}</span>`;
+  if(s === t) return `<span class="badge due">due today</span>`;
+  return `<span class="badge plain">due ${fmtDate(s)}</span>`;
+}
+
+/* ===================== config / init ===================== */
+let db=null, auth=null, user=null;
+let resps=[], projs=[];   // live data
+let unsubs=[];
+let showArchivedResp=false, showArchivedProj=false, showDoneProj={};
+
+function getStoredConfig(){
+  try{ return JSON.parse(localStorage.getItem("lp_firebase_config")||"null"); }catch(e){ return null; }
+}
+function saveConfig(){
+  const raw = $("configInput").value.trim();
+  const m = raw.match(/\{[\s\S]*\}/);
+  if(!m){ $("configErr").textContent = "Hmm, I couldn't find a { ... } block in what you pasted. Copy the whole config from Firebase."; return; }
+  let cfg;
+  try{ cfg = (new Function("return "+m[0]))(); }
+  catch(e){ $("configErr").textContent = "That doesn't look like a valid config. Copy it exactly as Firebase shows it."; return; }
+  if(!cfg.apiKey || !cfg.projectId){ $("configErr").textContent = "Config is missing apiKey or projectId — copy the whole thing."; return; }
+  localStorage.setItem("lp_firebase_config", JSON.stringify(cfg));
+  location.reload();
+}
+function resetConfig(){
+  if(confirm("Remove the saved Firebase config from this device? (Your data in the cloud is safe.)")){
+    localStorage.removeItem("lp_firebase_config"); location.reload();
+  }
+}
+
+function boot(){
+  const cfg = getStoredConfig();
+  if(!cfg){ $("setupScreen").classList.remove("hide"); return; }
+  try{
+    firebase.initializeApp(cfg);
+    auth = firebase.auth();
+    db = firebase.firestore();
+  }catch(e){
+    localStorage.removeItem("lp_firebase_config");
+    $("setupScreen").classList.remove("hide");
+    $("configErr").textContent = "Saved config didn't work — please paste it again.";
+    return;
+  }
+  auth.getRedirectResult().catch(e => { $("loginErr").textContent = friendlyAuthError(e); });
+  auth.onAuthStateChanged(u => {
+    user = u;
+    if(u){
+      $("loginScreen").classList.add("hide");
+      $("app").classList.remove("hide");
+      $("userLabel").textContent = u.displayName || u.email || "you";
+      listen();
+    }else{
+      $("app").classList.add("hide");
+      $("loginScreen").classList.remove("hide");
+      stopListening();
+    }
+  });
+}
+function friendlyAuthError(e){
+  if(!e || !e.code) return "";
+  if(e.code==="auth/unauthorized-domain") return "This website's address isn't authorised in Firebase yet. In Firebase: Authentication → Settings → Authorized domains → add this site's domain (see setup guide Step 6).";
+  if(e.code==="auth/operation-not-allowed") return "Google sign-in isn't enabled yet. In Firebase: Authentication → Sign-in method → enable Google (setup guide Step 3).";
+  if(e.code==="auth/popup-closed-by-user") return "";
+  return e.message || String(e);
+}
+function signIn(){
+  const prov = new firebase.auth.GoogleAuthProvider();
+  auth.signInWithPopup(prov).catch(e => {
+    if(e.code==="auth/popup-blocked" || e.code==="auth/cancelled-popup-request" || e.code==="auth/operation-not-supported-in-this-environment"){
+      auth.signInWithRedirect(prov);
+    }else{
+      $("loginErr").textContent = friendlyAuthError(e);
+    }
+  });
+}
+function signOut(){ auth.signOut(); }
+
+/* ===================== data sync ===================== */
+function col(name){ return db.collection("users").doc(user.uid).collection(name); }
+function stopListening(){ unsubs.forEach(u=>u()); unsubs=[]; resps=[]; projs=[]; }
+function listen(){
+  stopListening();
+  unsubs.push(col("responsibilities").onSnapshot(snap => {
+    resps = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    resps.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    renderAll(); setSync(true);
+  }, e => setSync(false, e)));
+  unsubs.push(col("projects").onSnapshot(snap => {
+    projs = snap.docs.map(d => ({id:d.id, ...d.data()}));
+    projs.sort((a,b)=>(a.deadline||"9999").localeCompare(b.deadline||"9999"));
+    renderAll(); setSync(true);
+  }, e => setSync(false, e)));
+}
+function setSync(ok, e){
+  const el = $("syncDot");
+  if(ok){ el.textContent="● synced"; el.style.color="var(--green)"; }
+  else{
+    el.textContent="● sync issue"; el.style.color="var(--red)";
+    if(e && e.code==="permission-denied") alert("Firestore says 'permission denied'. Make sure you set the security rules from the setup guide (Step 2).");
+  }
+}
+function saveResp(r){
+  pruneCompletions(r);
+  const {id, ...data} = r;
+  col("responsibilities").doc(id).set(data);
+}
+function saveProj(p){
+  const {id, ...data} = p;
+  col("projects").doc(id).set(data);
+}
+function deleteResp(id){ col("responsibilities").doc(id).delete(); }
+function deleteProj(id){ col("projects").doc(id).delete(); }
+function pruneCompletions(r){
+  if(!r.completions) return;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-120);
+  const c = dstr(cutoff);
+  for(const k of Object.keys(r.completions)) if(k < c) delete r.completions[k];
+}
+
+/* ===================== tabs ===================== */
+function switchTab(t){
+  document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
+  document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));
+  $("view-"+t).classList.add("active");
+  $("tab-"+t).classList.add("active");
+  renderAll();
+}
+function renderAll(){
+  if(!user) return;
+  renderToday(); renderReview(); renderResp(); renderProj();
+}
+
+/* ===================== TODAY view ===================== */
+function collectDayItems(dateStr){
+  // returns {weekly:[{resp,task,done}], respTodos:[{resp,todo}], projTodos:[{proj,todo}]} for a given date
+  const dow = new Date(dateStr+"T00:00:00").getDay();
+  const out = {weekly:[], respTodos:[], projTodos:[]};
+  for(const r of resps.filter(x=>!x.archived)){
+    for(const w of (r.weekly||[]).filter(w=>w.day===dow)){
+      const done = ((r.completions||{})[dateStr]||[]).includes(w.id);
+      out.weekly.push({resp:r, task:w, done});
+    }
+    for(const t of (r.adhoc||[])){
+      if(t.done) continue;
+      if(t.deadline && t.deadline <= dateStr) out.respTodos.push({resp:r, todo:t});
+    }
+  }
+  for(const p of projs.filter(x=>!x.archived)){
+    for(const t of (p.todos||[])){
+      if(t.done) continue;
+      if(t.deadline && t.deadline <= dateStr) out.projTodos.push({proj:p, todo:t});
+    }
+  }
+  return out;
+}
+function renderToday(){
+  const t = todayStr();
+  const items = collectDayItems(t);
+  const total = items.weekly.length + items.respTodos.length + items.projTodos.length;
+  const doneCount = items.weekly.filter(x=>x.done).length;
+  const now = new Date();
+  const hour = now.getHours();
+  const greet = hour<12 ? "Good morning" : hour<18 ? "Good afternoon" : "Good evening";
+  let h = `<div class="greet">
+    <div class="date">${DAYS[now.getDay()]} · ${now.toLocaleDateString(undefined,{day:"numeric",month:"long"})}</div>
+    <h2>${greet}, here's your day 🌤️</h2>`;
+  if(total>0){
+    const pct = Math.round(100*doneCount/Math.max(1,total));
+    h += `<div class="progressbar"><div style="width:${pct}%"></div></div>
+    <div class="progress-label">${doneCount} of ${total} done</div>`;
+  }
+  h += `</div>`;
+
+  if(total===0){
+    h += `<div class="big-empty"><div class="e">🎈</div>Nothing scheduled for today.<br>Add weekly rhythms under <b>Duties</b> or tasks under <b>Projects</b>.</div>`;
+    $("view-today").innerHTML = h; return;
+  }
+
+  // group weekly + adhoc by responsibility
+  const byResp = {};
+  items.weekly.forEach(x => (byResp[x.resp.id] = byResp[x.resp.id]||{resp:x.resp, weekly:[], todos:[]}).weekly.push(x));
+  items.respTodos.forEach(x => (byResp[x.resp.id] = byResp[x.resp.id]||{resp:x.resp, weekly:[], todos:[]}).todos.push(x));
+  for(const g of Object.values(byResp)){
+    h += `<div class="card"><h3>🔄 ${esc(g.resp.name)}</h3>`;
+    for(const x of g.weekly){
+      h += `<div class="task ${x.done?"done":""}">
+        <input type="checkbox" ${x.done?"checked":""} onchange="toggleWeekly('${x.resp.id}','${x.task.id}','${t}')">
+        <div class="txt">${esc(x.task.text)}<div class="meta">weekly rhythm</div></div>
+      </div>`;
+    }
+    for(const x of g.todos){
+      h += `<div class="task">
+        <input type="checkbox" onchange="toggleAdhoc('${x.resp.id}','${x.todo.id}')">
+        <div class="txt">${esc(x.todo.text)} ${deadlineBadge(x.todo.deadline)}</div>
+      </div>`;
+    }
+    h += `</div>`;
+  }
+  const byProj = {};
+  items.projTodos.forEach(x => (byProj[x.proj.id] = byProj[x.proj.id]||{proj:x.proj, todos:[]}).todos.push(x));
+  for(const g of Object.values(byProj)){
+    h += `<div class="card"><h3>🚀 ${esc(g.proj.name)}</h3>`;
+    for(const x of g.todos){
+      h += `<div class="task">
+        <input type="checkbox" onchange="toggleProjTodo('${g.proj.id}','${x.todo.id}')">
+        <div class="txt">${esc(x.todo.text)} ${deadlineBadge(x.todo.deadline)}
+          ${x.todo.notes ? `<div class="notes">${esc(x.todo.notes)}</div>`:""}
+        </div>
+      </div>`;
+    }
+    h += `</div>`;
+  }
+  $("view-today").innerHTML = h;
+}
+
+/* ===================== REVIEW view ===================== */
+function renderReview(){
+  const t = todayStr(), tm = tomorrowStr();
+  const completed = [], missed = [], tomorrow = [];
+
+  for(const r of resps.filter(x=>!x.archived)){
+    const doneToday = (r.completions||{})[t] || [];
+    for(const w of (r.weekly||[])){
+      if(w.day === new Date().getDay()){
+        (doneToday.includes(w.id) ? completed : missed).push({label:w.text, src:r.name, kind:"weekly"});
+      }
+      if(w.day === new Date(tm+"T00:00:00").getDay()){
+        tomorrow.push({label:w.text, src:r.name, kind:"weekly"});
+      }
+    }
+    for(const td of (r.adhoc||[])){
+      if(td.done && td.doneDate===t) completed.push({label:td.text, src:r.name, kind:"todo"});
+      if(!td.done && td.deadline && td.deadline<=t) missed.push({label:td.text, src:r.name, kind:"todo", deadline:td.deadline});
+      if(!td.done && td.deadline===tm) tomorrow.push({label:td.text, src:r.name, kind:"todo"});
+    }
+  }
+  for(const p of projs.filter(x=>!x.archived)){
+    for(const td of (p.todos||[])){
+      if(td.done && td.doneDate===t) completed.push({label:td.text, src:p.name, kind:"todo"});
+      if(!td.done && td.deadline && td.deadline<=t) missed.push({label:td.text, src:p.name, kind:"todo", deadline:td.deadline});
+      if(!td.done && td.deadline===tm) tomorrow.push({label:td.text, src:p.name, kind:"todo"});
+    }
+  }
+
+  const row = i => `<div class="task"><div class="txt">${esc(i.label)}<div class="meta">${esc(i.src)}${i.deadline && i.deadline<t ? ` · was due ${fmtDate(i.deadline)}`:""}</div></div></div>`;
+  let h = `<div class="greet"><div class="date">End-of-day review</div><h2>How today went 🌙</h2></div>`;
+
+  h += `<div class="card review-block"><h4>✅ Completed today <span class="count-chip">${completed.length}</span></h4>`;
+  h += completed.length ? completed.map(row).join("") : `<div class="empty">Nothing ticked off yet — the day's not over!</div>`;
+  h += `</div>`;
+
+  h += `<div class="card review-block"><h4>⏳ Still open (was planned for today) <span class="count-chip">${missed.length}</span></h4>`;
+  h += missed.length ? missed.map(row).join("") : `<div class="empty">All clear — nothing slipped 🎉</div>`;
+  h += `</div>`;
+
+  h += `<div class="card review-block"><h4>📅 Coming up tomorrow <span class="count-chip">${tomorrow.length}</span></h4>`;
+  h += tomorrow.length ? tomorrow.map(row).join("") : `<div class="empty">Nothing scheduled for tomorrow yet.</div>`;
+  h += `</div>`;
+
+  $("view-review").innerHTML = h;
+}
+
+/* ===================== RESPONSIBILITIES view ===================== */
+function renderResp(){
+  let h = `<div class="greet"><div class="date">Responsibilities</div><h2>Your ongoing duties 🔄</h2></div>
+  <div class="card"><div class="addrow">
+    <input id="newRespName" placeholder="New responsibility (e.g. Marketing dept)" onkeydown="if(event.key==='Enter')addResp()">
+    <button class="btn" onclick="addResp()">Add</button>
+  </div></div>`;
+
+  const active = resps.filter(r=>!r.archived);
+  if(!active.length) h += `<div class="big-empty"><div class="e">🗂️</div>No responsibilities yet. Add one above to get started.</div>`;
+
+  for(const r of active){
+    h += `<div class="card"><div class="card-top"><h3>${esc(r.name)}</h3>
+      <div class="actions">
+        <button class="iconbtn" title="Rename" onclick="editRespName('${r.id}')">✏️</button>
+        <button class="iconbtn" title="Archive" onclick="archiveResp('${r.id}',true)">📦</button>
+      </div></div>`;
+
+    /* weekly rhythm */
+    h += `<div class="section-label">Weekly rhythm</div>`;
+    const weekly = r.weekly||[];
+    if(!weekly.length) h += `<div class="empty">No weekly tasks yet.</div>`;
+    for(const d of DAY_ORDER){
+      const dayTasks = weekly.filter(w=>w.day===d);
+      if(!dayTasks.length) continue;
+      h += `<div class="day-head">${DAYS[d]}</div>`;
+      for(const w of dayTasks){
+        h += `<div class="task"><div class="txt">${esc(w.text)}</div>
+          <button class="iconbtn" onclick="editWeekly('${r.id}','${w.id}')">✏️</button>
+          <button class="iconbtn" onclick="delWeekly('${r.id}','${w.id}')">🗑️</button></div>`;
+      }
+    }
+    h += `<div class="addrow">
+      <select class="daysel" id="wday-${r.id}">${DAY_ORDER.map(d=>`<option value="${d}">${DAYS[d].slice(0,3)}</option>`).join("")}</select>
+      <input id="wtext-${r.id}" placeholder="Weekly task" onkeydown="if(event.key==='Enter')addWeekly('${r.id}')">
+      <button class="btn small" onclick="addWeekly('${r.id}')">Add</button>
+    </div>`;
+
+    /* adhoc todos */
+    h += `<div class="section-label">One-off to-dos</div>`;
+    const adhoc = (r.adhoc||[]).slice().sort((a,b)=> (a.done-b.done) || (a.deadline||"9999").localeCompare(b.deadline||"9999"));
+    if(!adhoc.length) h += `<div class="empty">No one-off to-dos.</div>`;
+    for(const td of adhoc){
+      h += `<div class="task ${td.done?"done":""}">
+        <input type="checkbox" ${td.done?"checked":""} onchange="toggleAdhoc('${r.id}','${td.id}')">
+        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, td.done)}</div>
+        <button class="iconbtn" onclick="editAdhoc('${r.id}','${td.id}')">✏️</button>
+        <button class="iconbtn" onclick="delAdhoc('${r.id}','${td.id}')">🗑️</button>
+      </div>`;
+    }
+    h += `<div class="addrow">
+      <input id="atext-${r.id}" placeholder="One-off to-do" onkeydown="if(event.key==='Enter')addAdhoc('${r.id}')">
+      <input type="date" id="adate-${r.id}">
+      <button class="btn small" onclick="addAdhoc('${r.id}')">Add</button>
+    </div>`;
+    h += `</div>`;
+  }
+
+  const archived = resps.filter(r=>r.archived);
+  if(archived.length){
+    h += `<button class="archived-toggle" onclick="showArchivedResp=!showArchivedResp;renderResp()">${showArchivedResp?"Hide":"Show"} archived (${archived.length})</button>`;
+    if(showArchivedResp) for(const r of archived){
+      h += `<div class="card arch-card"><div class="card-top"><h3>${esc(r.name)}</h3>
+        <div class="actions">
+          <button class="btn small ghost" onclick="archiveResp('${r.id}',false)">Restore</button>
+          <button class="btn small danger" onclick="if(confirm('Delete “${esc(r.name)}” forever?'))deleteResp('${r.id}')">Delete</button>
+        </div></div></div>`;
+    }
+  }
+  $("view-resp").innerHTML = h;
+}
+
+/* ===================== PROJECTS view ===================== */
+function renderProj(){
+  let h = `<div class="greet"><div class="date">Projects</div><h2>Your projects 🚀</h2></div>
+  <div class="card"><div class="addrow">
+    <input id="newProjName" placeholder="New project name" onkeydown="if(event.key==='Enter')addProj()">
+    <input type="date" id="newProjDate" title="Projected deadline">
+    <button class="btn" onclick="addProj()">Add</button>
+  </div><div class="deadline-line" style="margin-top:6px">Pick the projected wrap-up date on the right.</div></div>`;
+
+  const active = projs.filter(p=>!p.archived);
+  if(!active.length) h += `<div class="big-empty"><div class="e">🌊</div>No live projects — enjoy the calm, or start one above.</div>`;
+
+  for(const p of active){
+    const t = todayStr();
+    let dl = "";
+    if(p.deadline){
+      const days = Math.round((new Date(p.deadline+"T00:00:00") - new Date(t+"T00:00:00"))/86400000);
+      dl = days<0 ? `<span class="badge overdue">deadline passed · ${fmtDate(p.deadline)}</span>`
+         : days===0 ? `<span class="badge due">wraps up today</span>`
+         : `<span class="badge ok">${days} day${days===1?"":"s"} left · ${fmtDate(p.deadline)}</span>`;
+    }
+    const todos = (p.todos||[]);
+    const open = todos.filter(x=>!x.done), done = todos.filter(x=>x.done);
+    h += `<div class="card"><div class="card-top"><div><h3>${esc(p.name)}</h3><div class="deadline-line">${dl}</div></div>
+      <div class="actions">
+        <button class="iconbtn" title="Edit" onclick="editProj('${p.id}')">✏️</button>
+        <button class="iconbtn" title="Archive" onclick="archiveProj('${p.id}',true)">📦</button>
+      </div></div>`;
+
+    h += `<div class="section-label">To-dos</div>`;
+    if(!todos.length) h += `<div class="empty">No to-dos yet.</div>`;
+    const sorted = open.slice().sort((a,b)=>(a.deadline||"9999").localeCompare(b.deadline||"9999"));
+    for(const td of sorted){
+      h += `<div class="task">
+        <input type="checkbox" onchange="toggleProjTodo('${p.id}','${td.id}')">
+        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline)}
+          ${td.notes?`<div class="notes">${esc(td.notes)}</div>`:""}
+        </div>
+        <button class="iconbtn" title="Edit / notes" onclick="editProjTodo('${p.id}','${td.id}')">✏️</button>
+        <button class="iconbtn" onclick="delProjTodo('${p.id}','${td.id}')">🗑️</button>
+      </div>`;
+    }
+    if(done.length){
+      h += `<button class="archived-toggle" style="margin:8px 0 2px" onclick="showDoneProj['${p.id}']=!showDoneProj['${p.id}'];renderProj()">${showDoneProj[p.id]?"Hide":"Show"} completed (${done.length})</button>`;
+      if(showDoneProj[p.id]) for(const td of done){
+        h += `<div class="task done">
+          <input type="checkbox" checked onchange="toggleProjTodo('${p.id}','${td.id}')">
+          <div class="txt">${esc(td.text)}<div class="meta">done ${fmtDate(td.doneDate)}</div></div>
+          <button class="iconbtn" onclick="delProjTodo('${p.id}','${td.id}')">🗑️</button>
+        </div>`;
+      }
+    }
+    h += `<div class="addrow">
+      <input id="ptext-${p.id}" placeholder="New to-do" onkeydown="if(event.key==='Enter')addProjTodo('${p.id}')">
+      <input type="date" id="pdate-${p.id}">
+      <button class="btn small" onclick="addProjTodo('${p.id}')">Add</button>
+    </div>`;
+    h += `</div>`;
+  }
+
+  const archived = projs.filter(p=>p.archived);
+  if(archived.length){
+    h += `<button class="archived-toggle" onclick="showArchivedProj=!showArchivedProj;renderProj()">${showArchivedProj?"Hide":"Show"} archived (${archived.length})</button>`;
+    if(showArchivedProj) for(const p of archived){
+      h += `<div class="card arch-card"><div class="card-top"><h3>${esc(p.name)}</h3>
+        <div class="actions">
+          <button class="btn small ghost" onclick="archiveProj('${p.id}',false)">Restore</button>
+          <button class="btn small danger" onclick="if(confirm('Delete “${esc(p.name)}” forever?'))deleteProj('${p.id}')">Delete</button>
+        </div></div></div>`;
+    }
+  }
+  $("view-proj").innerHTML = h;
+}
+
+/* ===================== actions: responsibilities ===================== */
+function findResp(id){ return resps.find(r=>r.id===id); }
+function findProj(id){ return projs.find(p=>p.id===id); }
+
+function addResp(){
+  const name = $("newRespName").value.trim();
+  if(!name) return;
+  saveResp({id:uid(), name, archived:false, createdAt:Date.now(), weekly:[], adhoc:[], completions:{}});
+  $("newRespName").value="";
+}
+function archiveResp(id, val){ const r=findResp(id); if(r){ r.archived=val; saveResp(r);} }
+function editRespName(id){
+  const r=findResp(id); if(!r) return;
+  openModal("Rename responsibility", [{key:"name",label:"Name",type:"text",value:r.name}], v=>{
+    if(v.name.trim()){ r.name=v.name.trim(); saveResp(r); }
+  });
+}
+function addWeekly(rid){
+  const r=findResp(rid); if(!r) return;
+  const text=$("wtext-"+rid).value.trim(); if(!text) return;
+  const day=parseInt($("wday-"+rid).value,10);
+  r.weekly=r.weekly||[]; r.weekly.push({id:uid(), day, text});
+  saveResp(r);
+}
+function editWeekly(rid, wid){
+  const r=findResp(rid); if(!r) return;
+  const w=(r.weekly||[]).find(x=>x.id===wid); if(!w) return;
+  openModal("Edit weekly task", [
+    {key:"text",label:"Task",type:"text",value:w.text},
+    {key:"day",label:"Day of week",type:"select",value:String(w.day),options:DAY_ORDER.map(d=>({v:String(d),l:DAYS[d]}))}
+  ], v=>{
+    if(v.text.trim()){ w.text=v.text.trim(); w.day=parseInt(v.day,10); saveResp(r); }
+  });
+}
+function delWeekly(rid, wid){
+  const r=findResp(rid); if(!r) return;
+  if(!confirm("Delete this weekly task?")) return;
+  r.weekly=(r.weekly||[]).filter(x=>x.id!==wid); saveResp(r);
+}
+function toggleWeekly(rid, wid, dateStr){
+  const r=findResp(rid); if(!r) return;
+  r.completions=r.completions||{};
+  const arr=r.completions[dateStr]||[];
+  r.completions[dateStr]= arr.includes(wid) ? arr.filter(x=>x!==wid) : [...arr, wid];
+  saveResp(r);
+}
+function addAdhoc(rid){
+  const r=findResp(rid); if(!r) return;
+  const text=$("atext-"+rid).value.trim(); if(!text) return;
+  const deadline=$("adate-"+rid).value||"";
+  r.adhoc=r.adhoc||[]; r.adhoc.push({id:uid(), text, deadline, done:false, doneDate:""});
+  saveResp(r);
+}
+function editAdhoc(rid, tid){
+  const r=findResp(rid); if(!r) return;
+  const td=(r.adhoc||[]).find(x=>x.id===tid); if(!td) return;
+  openModal("Edit to-do", [
+    {key:"text",label:"To-do",type:"text",value:td.text},
+    {key:"deadline",label:"Deadline",type:"date",value:td.deadline||""}
+  ], v=>{
+    if(v.text.trim()){ td.text=v.text.trim(); td.deadline=v.deadline; saveResp(r); }
+  });
+}
+function delAdhoc(rid, tid){
+  const r=findResp(rid); if(!r) return;
+  if(!confirm("Delete this to-do?")) return;
+  r.adhoc=(r.adhoc||[]).filter(x=>x.id!==tid); saveResp(r);
+}
+function toggleAdhoc(rid, tid){
+  const r=findResp(rid); if(!r) return;
+  const td=(r.adhoc||[]).find(x=>x.id===tid); if(!td) return;
+  td.done=!td.done; td.doneDate=td.done?todayStr():"";
+  saveResp(r);
+}
+
+/* ===================== actions: projects ===================== */
+function addProj(){
+  const name=$("newProjName").value.trim(); if(!name) return;
+  const deadline=$("newProjDate").value||"";
+  saveProj({id:uid(), name, deadline, archived:false, createdAt:Date.now(), todos:[]});
+  $("newProjName").value=""; $("newProjDate").value="";
+}
+function archiveProj(id, val){ const p=findProj(id); if(p){ p.archived=val; saveProj(p);} }
+function editProj(id){
+  const p=findProj(id); if(!p) return;
+  openModal("Edit project", [
+    {key:"name",label:"Project name",type:"text",value:p.name},
+    {key:"deadline",label:"Projected deadline",type:"date",value:p.deadline||""}
+  ], v=>{
+    if(v.name.trim()){ p.name=v.name.trim(); p.deadline=v.deadline; saveProj(p); }
+  });
+}
+function addProjTodo(pid){
+  const p=findProj(pid); if(!p) return;
+  const text=$("ptext-"+pid).value.trim(); if(!text) return;
+  const deadline=$("pdate-"+pid).value||"";
+  p.todos=p.todos||[]; p.todos.push({id:uid(), text, deadline, notes:"", done:false, doneDate:""});
+  saveProj(p);
+}
+function editProjTodo(pid, tid){
+  const p=findProj(pid); if(!p) return;
+  const td=(p.todos||[]).find(x=>x.id===tid); if(!td) return;
+  openModal("Edit to-do", [
+    {key:"text",label:"To-do",type:"text",value:td.text},
+    {key:"deadline",label:"Deadline",type:"date",value:td.deadline||""},
+    {key:"notes",label:"Notes",type:"textarea",value:td.notes||""}
+  ], v=>{
+    if(v.text.trim()){ td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes; saveProj(p); }
+  });
+}
+function delProjTodo(pid, tid){
+  const p=findProj(pid); if(!p) return;
+  if(!confirm("Delete this to-do?")) return;
+  p.todos=(p.todos||[]).filter(x=>x.id!==tid); saveProj(p);
+}
+function toggleProjTodo(pid, tid){
+  const p=findProj(pid); if(!p) return;
+  const td=(p.todos||[]).find(x=>x.id===tid); if(!td) return;
+  td.done=!td.done; td.doneDate=td.done?todayStr():"";
+  saveProj(p);
+}
+
+/* ===================== modal ===================== */
+let modalCb=null, modalFieldDefs=[];
+function openModal(title, fields, cb){
+  modalCb=cb; modalFieldDefs=fields;
+  $("modalTitle").textContent=title;
+  $("modalFields").innerHTML = fields.map((f,i)=>{
+    let inp="";
+    if(f.type==="select") inp=`<select id="mf-${i}">${f.options.map(o=>`<option value="${o.v}" ${o.v===f.value?"selected":""}>${o.l}</option>`).join("")}</select>`;
+    else if(f.type==="textarea") inp=`<textarea id="mf-${i}" rows="4">${esc(f.value)}</textarea>`;
+    else inp=`<input id="mf-${i}" type="${f.type}" value="${esc(f.value)}">`;
+    return `<label>${f.label}</label>${inp}`;
+  }).join("");
+  $("modalBack").classList.add("open");
+  setTimeout(()=>{ const el=$("mf-0"); if(el && modalFieldDefs[0].type==="text") el.focus(); },50);
+}
+function closeModal(){ $("modalBack").classList.remove("open"); modalCb=null; }
+function modalSave(){
+  if(!modalCb) return;
+  const v={};
+  modalFieldDefs.forEach((f,i)=>{ v[f.key]=$("mf-"+i).value; });
+  modalCb(v); closeModal();
+}
+
+/* refresh views on day change / app resume */
+document.addEventListener("visibilitychange", ()=>{ if(!document.hidden) renderAll(); });
+
+boot();
+</script>
+</body>
+</html>
