@@ -6,8 +6,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1a1a2e">
-<title>Life Planner</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+<title>System of Success</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌟</text></svg>">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -136,14 +136,21 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
 .task.dragging{opacity:.45}
 .movebtns{display:flex;gap:0}
 .movebtns .iconbtn{font-size:12px;padding:3px 3px}
+
+/* v4: floating add button + hideable notes */
+.fab{position:fixed;right:18px;bottom:calc(84px + env(safe-area-inset-bottom));width:56px;height:56px;border-radius:50%;background:var(--accent);color:#fff;border:none;font-size:30px;line-height:1;box-shadow:0 4px 14px rgba(91,110,232,.45);z-index:60;display:flex;align-items:center;justify-content:center}
+.fab:active{transform:scale(.95)}
+.notesbox{margin-top:4px}
+.notesbox summary{font-size:12px;color:var(--muted);cursor:pointer;user-select:none;-webkit-user-select:none}
+.field-hint{font-size:12px;color:var(--muted);margin-top:4px}
 </style>
 </head>
 <body>
 
 <!-- SETUP SCREEN (first run: paste Firebase config) -->
 <div id="setupScreen" class="gate hide">
-  <div class="e">🌱</div>
-  <h2>Welcome to your Life Planner</h2>
+  <div class="e">🌟</div>
+  <h2>Welcome to your System of Success</h2>
   <p>One-time setup on this device: paste your <b>Firebase config</b> below (from the setup guide, Step 4). It looks like <i>const firebaseConfig = { apiKey: "..." ... }</i> — paste the whole thing.</p>
   <textarea id="configInput" placeholder='const firebaseConfig = {
   apiKey: "AIza...",
@@ -157,8 +164,8 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
 
 <!-- LOGIN SCREEN -->
 <div id="loginScreen" class="gate hide">
-  <div class="e">🌱</div>
-  <h2>Life Planner</h2>
+  <div class="e">🌟</div>
+  <h2>System of Success</h2>
   <p>Sign in with Google so your plan syncs across your laptop and phone — and only you can see it.</p>
   <button class="gbtn" onclick="signIn()"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.1H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 13 4 4 13 4 24s9 20 20 20 20-9 20-20c0-1.3-.1-2.7-.4-3.9z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.1 18.9 12 24 12c3.1 0 5.9 1.2 8 3l5.7-5.7C34.1 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.1H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.1 5.7l6.2 5.2C41.4 35.4 44 30.1 44 24c0-1.3-.1-2.7-.4-3.9z"/></svg> Sign in with Google</button>
   <div id="loginErr" class="err"></div>
@@ -169,7 +176,7 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
 <div id="app" class="hide">
 <header>
   <div>
-    <h1>🌱 Life Planner</h1>
+    <h1>🌟 System of Success</h1>
     <div class="sub"><span id="userLabel"></span> · <span class="syncdot" id="syncDot">● synced</span></div>
   </div>
   <button class="signout" onclick="signOut()">sign out</button>
@@ -180,10 +187,11 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
   <div id="view-resp" class="view"></div>
   <div id="view-proj" class="view"></div>
 </main>
+<button class="fab" title="Add a to-do" onclick="openAddTodo()">＋</button>
 <nav>
   <button id="tab-today" class="active" onclick="switchTab('today')"><span class="ico">☀️</span>Today</button>
   <button id="tab-review" onclick="switchTab('review')"><span class="ico">🌙</span>Review</button>
-  <button id="tab-resp" onclick="switchTab('resp')"><span class="ico">🔄</span>Duties</button>
+  <button id="tab-resp" onclick="switchTab('resp')"><span class="ico">❤️‍🔥</span>Responsibilities</button>
   <button id="tab-proj" onclick="switchTab('proj')"><span class="ico">🚀</span>Projects</button>
 </nav>
 </div>
@@ -236,6 +244,7 @@ const PALETTE = ["#5b6ee8","#2fa36b","#c98a1b","#d9534f","#8e5be8","#1f9e9e","#d
 const colorOf = x => x.color || PALETTE[0];
 const dot = c => `<span class="colordot" style="background:${c}"></span>`;
 const srcChip = (name,c) => `<span class="src-chip">${dot(c)}${esc(name)}</span>`;
+const notesHTML = n => n ? `<details class="notesbox"><summary>📝 notes</summary><div class="notes">${esc(n)}</div></details>` : "";
 
 function getStoredConfig(){
   try{ return JSON.parse(localStorage.getItem("lp_firebase_config")||"null"); }catch(e){ return null; }
@@ -458,7 +467,7 @@ function renderToday(){
   h += `</div>`;
 
   if(total===0){
-    h += `<div class="big-empty"><div class="e">🎈</div>Nothing scheduled for today.<br>Add weekly rhythms under <b>Duties</b> or tasks under <b>Projects</b>.</div>`;
+    h += `<div class="big-empty"><div class="e">🎈</div>Nothing scheduled for today.<br>Add weekly rhythms under <b>Responsibilities</b> or tap ＋ to add a to-do.</div>`;
     $("view-today").innerHTML = `<div class="narrow">${h}</div>`; return;
   }
 
@@ -474,7 +483,7 @@ function todayRow(i){
     <div class="txt">
       <div class="meta" style="margin:0 0 3px">${srcChip(i.src,i.color)}${i.weekly?" · weekly":""}</div>
       ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
-      ${i.notes ? `<div class="notes">${esc(i.notes)}</div>` : ""}
+      ${notesHTML(i.notes)}
     </div>
     <button class="iconbtn" title="Edit" onclick="${i.edit}">✏️</button>
   </div>`;
@@ -555,7 +564,7 @@ function renderReview(){
     <div class="txt">
       <div class="meta" style="margin:0 0 3px">${srcChip(i.src, i.color)}${i.weekly ? " · weekly" : ""}</div>
       ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
-      ${i.notes ? `<div class="notes">${esc(i.notes)}</div>` : ""}
+      ${notesHTML(i.notes)}
     </div>
     ${i.edit ? `<button class="iconbtn" title="Edit / change deadline" onclick="${i.edit}">✏️</button>` : ""}
   </div>`;
@@ -583,7 +592,7 @@ function renderReview(){
 
 /* ===================== RESPONSIBILITIES view ===================== */
 function renderResp(){
-  let h = `<div class="greet"><div class="date">Responsibilities</div><h2>Your ongoing duties 🔄</h2></div>
+  let h = `<div class="greet"><div class="date">Responsibilities</div><h2>Your responsibilities ❤️‍🔥</h2></div>
   <div class="card"><div class="addrow">
     <input id="newRespName" placeholder="New responsibility (e.g. Marketing dept)" onkeydown="if(event.key==='Enter')addResp()">
     <button class="btn" onclick="addResp()">Add</button>
@@ -636,7 +645,7 @@ function renderResp(){
       h += `<div class="task ${td.done?"done":""}">
         <input type="checkbox" ${td.done?"checked":""} onchange="toggleAdhoc('${r.id}','${td.id}')">
         <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, td.done)}
-          ${td.notes ? `<div class="notes">${esc(td.notes)}</div>`:""}
+          ${notesHTML(td.notes)}
         </div>
         <button class="iconbtn" title="Edit / notes" onclick="editAdhoc('${r.id}','${td.id}')">✏️</button>
         <button class="iconbtn" onclick="delAdhoc('${r.id}','${td.id}')">🗑️</button>
@@ -709,7 +718,7 @@ function renderProj(){
         h += `<div class="task">
           <input type="checkbox" onchange="toggleProjTodo('${p.id}','${td.id}')">
           <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline)}
-            ${td.notes?`<div class="notes">${esc(td.notes)}</div>`:""}
+            ${notesHTML(td.notes)}
           </div>
           <button class="iconbtn" title="Edit / notes" onclick="editProjTodo('${p.id}','${td.id}')">✏️</button>
           <button class="iconbtn" onclick="delProjTodo('${p.id}','${td.id}')">🗑️</button>
@@ -876,6 +885,43 @@ function toggleProjTodo(pid, tid){
   const td=(p.todos||[]).find(x=>x.id===tid); if(!td) return;
   td.done=!td.done; td.doneDate=td.done?todayStr():"";
   saveProj(p);
+}
+
+/* ===================== global add to-do ===================== */
+function openAddTodo(){
+  const opts = [];
+  resps.filter(r=>!r.archived).forEach(r=>opts.push({v:"r:"+r.id, l:"❤️‍🔥 "+r.name}));
+  projs.filter(p=>!p.archived).forEach(p=>opts.push({v:"p:"+p.id, l:"🚀 "+p.name}));
+  opts.push({v:"new-r", l:"➕ Create new responsibility…"});
+  opts.push({v:"new-p", l:"➕ Create new project…"});
+  openModal("Add a to-do", [
+    {key:"text",label:"To-do",type:"text",value:""},
+    {key:"deadline",label:"Deadline",type:"date",value:""},
+    {key:"cat",label:"Belongs to",type:"select",value:opts[0].v,options:opts},
+    {key:"newname",label:"New name — only needed if creating new above",type:"text",value:""},
+    {key:"notes",label:"Notes (optional)",type:"textarea",value:""}
+  ], v=>{
+    const text = v.text.trim();
+    if(!text) return;
+    const todo = {id:uid(), text, deadline:v.deadline||"", notes:v.notes||"", done:false, doneDate:""};
+    if(v.cat==="new-r" || v.cat==="new-p"){
+      const name = v.newname.trim();
+      if(!name){ alert("You picked 'create new' — please give it a name."); return; }
+      if(v.cat==="new-r"){
+        saveResp({id:uid(), name, color:PALETTE[resps.length%PALETTE.length], archived:false, createdAt:Date.now(), weekly:[], adhoc:[todo], completions:{}});
+      }else{
+        saveProj({id:uid(), name, deadline:"", color:PALETTE[projs.length%PALETTE.length], archived:false, createdAt:Date.now(), todos:[todo]});
+      }
+      return;
+    }
+    if(v.cat.startsWith("r:")){
+      const r = findResp(v.cat.slice(2)); if(!r) return;
+      r.adhoc = r.adhoc||[]; r.adhoc.push(todo); saveResp(r);
+    }else{
+      const p = findProj(v.cat.slice(2)); if(!p) return;
+      p.todos = p.todos||[]; p.todos.push(todo); saveProj(p);
+    }
+  });
 }
 
 /* ===================== modal ===================== */
