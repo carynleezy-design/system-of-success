@@ -651,11 +651,6 @@ function renderResp(){
         <button class="iconbtn" onclick="delAdhoc('${r.id}','${td.id}')">🗑️</button>
       </div>`;
     }
-    h += `<div class="addrow">
-      <input id="atext-${r.id}" placeholder="One-off to-do" onkeydown="if(event.key==='Enter')addAdhoc('${r.id}')">
-      <input type="date" id="adate-${r.id}">
-      <button class="btn small" onclick="addAdhoc('${r.id}')">Add</button>
-    </div>`;
     h += `</div>`;
   }
   h += `</div>`;
@@ -734,11 +729,6 @@ function renderProj(){
           </div>`;
         }
       }
-      h += `<div class="addrow">
-        <input id="ptext-${p.id}" placeholder="New to-do" onkeydown="if(event.key==='Enter')addProjTodo('${p.id}')">
-        <input type="date" id="pdate-${p.id}">
-        <button class="btn small" onclick="addProjTodo('${p.id}')">Add</button>
-      </div>`;
     }
     h += `</div>`;
   }
