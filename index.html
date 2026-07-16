@@ -130,6 +130,12 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
 .swatches{display:flex;gap:8px;flex-wrap:wrap;padding:4px 0}
 .swatches span{width:28px;height:28px;border-radius:50%;cursor:pointer;border:3px solid transparent;display:inline-block}
 .swatches span.sel{border-color:var(--ink)}
+
+/* v3: drag reorder + block move */
+.draghandle{cursor:grab;font-size:15px;color:var(--muted);padding:2px 2px;margin-top:1px;flex-shrink:0;user-select:none;-webkit-user-select:none}
+.task.dragging{opacity:.45}
+.movebtns{display:flex;gap:0}
+.movebtns .iconbtn{font-size:12px;padding:3px 3px}
 </style>
 </head>
 <body>
@@ -225,7 +231,7 @@ function deadlineBadge(s, done){
 let db=null, auth=null, user=null;
 let resps=[], projs=[];   // live data
 let unsubs=[];
-let showArchivedResp=false, showArchivedProj=false, showDoneProj={}, expandedWeekly={};
+let showArchivedResp=false, showArchivedProj=false, showDoneProj={}, expandedWeekly={}, expandedProjTodos={}, dayOrder={};
 const PALETTE = ["#5b6ee8","#2fa36b","#c98a1b","#d9534f","#8e5be8","#1f9e9e","#d15b9e","#6b7280"];
 const colorOf = x => x.color || PALETTE[0];
 const dot = c => `<span class="colordot" style="background:${c}"></span>`;
@@ -305,14 +311,40 @@ function listen(){
   stopListening();
   unsubs.push(col("responsibilities").onSnapshot(snap => {
     resps = snap.docs.map(d => ({id:d.id, ...d.data()}));
-    resps.sort((a,b)=>(a.createdAt||0)-(b.createdAt||0));
+    resps.sort((a,b)=>((a.order??1e9)-(b.order??1e9)) || (a.createdAt||0)-(b.createdAt||0));
     renderAll(); setSync(true);
   }, e => setSync(false, e)));
   unsubs.push(col("projects").onSnapshot(snap => {
     projs = snap.docs.map(d => ({id:d.id, ...d.data()}));
-    projs.sort((a,b)=>(a.deadline||"9999").localeCompare(b.deadline||"9999"));
+    projs.sort((a,b)=>((a.order??1e9)-(b.order??1e9)) || (a.deadline||"9999").localeCompare(b.deadline||"9999"));
     renderAll(); setSync(true);
   }, e => setSync(false, e)));
+  unsubs.push(col("meta").doc("dayOrder").onSnapshot(d => {
+    dayOrder = (d.data()||{}).orders || {};
+    renderAll();
+  }, e => {}));
+}
+function saveDayOrder(date, keys){
+  dayOrder[date] = keys;
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-14);
+  const c = dstr(cutoff), orders = {};
+  for(const k of Object.keys(dayOrder)) if(k >= c) orders[k] = dayOrder[k];
+  dayOrder = orders;
+  col("meta").doc("dayOrder").set({orders});
+}
+function moveResp(id, dir){
+  const list = resps.filter(r=>!r.archived);
+  const i = list.findIndex(r=>r.id===id), j = i+dir;
+  if(i<0 || j<0 || j>=list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  list.forEach((r,idx)=>{ if(r.order!==idx){ r.order=idx; saveResp(r); } });
+}
+function moveProj(id, dir){
+  const list = projs.filter(p=>!p.archived);
+  const i = list.findIndex(p=>p.id===id), j = i+dir;
+  if(i<0 || j<0 || j>=list.length) return;
+  [list[i], list[j]] = [list[j], list[i]];
+  list.forEach((p,idx)=>{ if(p.order!==idx){ p.order=idx; saveProj(p); } });
 }
 function setSync(ok, e){
   const el = $("syncDot");
@@ -378,9 +410,40 @@ function collectDayItems(dateStr){
 }
 function renderToday(){
   const t = todayStr();
-  const items = collectDayItems(t);
-  const total = items.weekly.length + items.respTodos.length + items.projTodos.length;
-  const doneCount = items.weekly.filter(x=>x.done).length;
+  const dow = new Date().getDay();
+  let items = [];
+  for(const r of resps.filter(x=>!x.archived)){
+    const c = colorOf(r);
+    for(const w of (r.weekly||[]).filter(w=>w.day===dow)){
+      const done = ((r.completions||{})[t]||[]).includes(w.id);
+      items.push({key:`w:${r.id}:${w.id}`, label:w.text, src:r.name, color:c, weekly:true, done,
+        toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`, edit:`editWeekly('${r.id}','${w.id}')`});
+    }
+    for(const td of (r.adhoc||[])){
+      if(!td.deadline || td.deadline > t) continue;
+      if(td.done && td.doneDate !== t) continue;
+      items.push({key:`a:${r.id}:${td.id}`, label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes, done:td.done,
+        toggle:`toggleAdhoc('${r.id}','${td.id}')`, edit:`editAdhoc('${r.id}','${td.id}')`});
+    }
+  }
+  for(const p of projs.filter(x=>!x.archived)){
+    const c = colorOf(p);
+    for(const td of (p.todos||[])){
+      if(!td.deadline || td.deadline > t) continue;
+      if(td.done && td.doneDate !== t) continue;
+      items.push({key:`p:${p.id}:${td.id}`, label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes, done:td.done,
+        toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`});
+    }
+  }
+  // apply saved custom order for today
+  const saved = dayOrder[t] || [];
+  items.sort((a,b)=>{
+    const ia = saved.indexOf(a.key), ib = saved.indexOf(b.key);
+    return (ia<0?9999:ia) - (ib<0?9999:ib);
+  });
+
+  const total = items.length;
+  const doneCount = items.filter(x=>x.done).length;
   const now = new Date();
   const hour = now.getHours();
   const greet = hour<12 ? "Good morning" : hour<18 ? "Good afternoon" : "Good evening";
@@ -399,45 +462,50 @@ function renderToday(){
     $("view-today").innerHTML = `<div class="narrow">${h}</div>`; return;
   }
 
-  // group weekly + adhoc by responsibility
-  const byResp = {};
-  items.weekly.forEach(x => (byResp[x.resp.id] = byResp[x.resp.id]||{resp:x.resp, weekly:[], todos:[]}).weekly.push(x));
-  items.respTodos.forEach(x => (byResp[x.resp.id] = byResp[x.resp.id]||{resp:x.resp, weekly:[], todos:[]}).todos.push(x));
-  for(const g of Object.values(byResp)){
-    const c = colorOf(g.resp);
-    h += `<div class="card" style="border-top:4px solid ${c}"><h3>${dot(c)} ${esc(g.resp.name)}</h3>`;
-    for(const x of g.weekly){
-      h += `<div class="task ${x.done?"done":""}">
-        <input type="checkbox" ${x.done?"checked":""} onchange="toggleWeekly('${x.resp.id}','${x.task.id}','${t}')">
-        <div class="txt">${esc(x.task.text)}<div class="meta">weekly rhythm</div></div>
-      </div>`;
-    }
-    for(const x of g.todos){
-      h += `<div class="task">
-        <input type="checkbox" onchange="toggleAdhoc('${x.resp.id}','${x.todo.id}')">
-        <div class="txt">${esc(x.todo.text)} ${deadlineBadge(x.todo.deadline)}
-          ${x.todo.notes ? `<div class="notes">${esc(x.todo.notes)}</div>`:""}
-        </div>
-      </div>`;
-    }
-    h += `</div>`;
-  }
-  const byProj = {};
-  items.projTodos.forEach(x => (byProj[x.proj.id] = byProj[x.proj.id]||{proj:x.proj, todos:[]}).todos.push(x));
-  for(const g of Object.values(byProj)){
-    const c = colorOf(g.proj);
-    h += `<div class="card" style="border-top:4px solid ${c}"><h3>${dot(c)} ${esc(g.proj.name)}</h3>`;
-    for(const x of g.todos){
-      h += `<div class="task">
-        <input type="checkbox" onchange="toggleProjTodo('${g.proj.id}','${x.todo.id}')">
-        <div class="txt">${esc(x.todo.text)} ${deadlineBadge(x.todo.deadline)}
-          ${x.todo.notes ? `<div class="notes">${esc(x.todo.notes)}</div>`:""}
-        </div>
-      </div>`;
-    }
-    h += `</div>`;
-  }
+  h += `<div class="card"><div id="todayList">${items.map(todayRow).join("")}</div>
+    <div class="deadline-line" style="margin-top:10px">Drag ⠿ to reorder your day · ✏️ to edit a task</div></div>`;
   $("view-today").innerHTML = `<div class="narrow">${h}</div>`;
+}
+function todayRow(i){
+  return `<div class="task ${i.done?"done":""}" draggable="true" data-key="${i.key}"
+    ondragstart="tdDragStart(event)" ondragover="tdDragOver(event)" ondrop="tdDrop(event)" ondragend="tdDragEnd(event)">
+    <span class="draghandle">⠿</span>
+    <input type="checkbox" ${i.done?"checked":""} onchange="${i.toggle}">
+    <div class="txt">
+      <div class="meta" style="margin:0 0 3px">${srcChip(i.src,i.color)}${i.weekly?" · weekly":""}</div>
+      ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
+      ${i.notes ? `<div class="notes">${esc(i.notes)}</div>` : ""}
+    </div>
+    <button class="iconbtn" title="Edit" onclick="${i.edit}">✏️</button>
+  </div>`;
+}
+/* drag to reorder today's tasks */
+let dragKey = null;
+function tdDragStart(e){
+  dragKey = e.currentTarget.dataset.key;
+  e.currentTarget.classList.add("dragging");
+  e.dataTransfer.effectAllowed = "move";
+  try{ e.dataTransfer.setData("text/plain", dragKey); }catch(x){}
+}
+function tdDragOver(e){
+  e.preventDefault();
+  if(!dragKey) return;
+  const row = e.currentTarget;
+  if(row.dataset.key === dragKey) return;
+  const list = row.parentElement;
+  const dragged = list.querySelector('.task.dragging');
+  if(!dragged) return;
+  const rect = row.getBoundingClientRect();
+  const after = (e.clientY - rect.top) > rect.height/2;
+  list.insertBefore(dragged, after ? row.nextSibling : row);
+}
+function tdDrop(e){ e.preventDefault(); }
+function tdDragEnd(e){
+  e.currentTarget.classList.remove("dragging");
+  if(!dragKey) return;
+  dragKey = null;
+  const keys = [...document.querySelectorAll('#todayList .task')].map(x=>x.dataset.key);
+  saveDayOrder(todayStr(), keys);
 }
 
 /* ===================== REVIEW view ===================== */
@@ -484,27 +552,29 @@ function renderReview(){
 
   const row = i => `<div class="task ${i.done?"done":""}">
     ${i.toggle ? `<input type="checkbox" ${i.done?"checked":""} onchange="${i.toggle}">` : ""}
-    <div class="txt">${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
-      <div class="meta">${srcChip(i.src, i.color)}${i.weekly ? " · weekly" : ""}</div>
+    <div class="txt">
+      <div class="meta" style="margin:0 0 3px">${srcChip(i.src, i.color)}${i.weekly ? " · weekly" : ""}</div>
+      ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
       ${i.notes ? `<div class="notes">${esc(i.notes)}</div>` : ""}
     </div>
     ${i.edit ? `<button class="iconbtn" title="Edit / change deadline" onclick="${i.edit}">✏️</button>` : ""}
   </div>`;
   let h = `<div class="greet"><div class="date">End-of-day review</div><h2>How today went 🌙</h2></div>`;
 
-  h += `<div class="card review-block"><h4>✅ Completed today <span class="count-chip">${completed.length}</span></h4>`;
-  h += completed.length ? completed.map(row).join("") : `<div class="empty">Nothing ticked off yet — the day's not over!</div>`;
-  h += `</div>`;
-
   h += `<div class="card review-block"><h4>⏳ Still open (was planned for today) <span class="count-chip">${missed.length}</span></h4>`;
   h += missed.length ? missed.map(row).join("") : `<div class="empty">All clear — nothing slipped 🎉</div>`;
+  h += `</div>`;
+
+  h += `<div class="card review-block"><h4>✅ Completed today <span class="count-chip">${completed.length}</span></h4>`;
+  h += completed.length ? completed.map(row).join("") : `<div class="empty">Nothing ticked off yet — the day's not over!</div>`;
   h += `</div>`;
 
   h += `<div class="card review-block"><h4>📅 Coming up tomorrow <span class="count-chip">${tomorrow.length}</span></h4>`;
   h += tomorrow.length ? tomorrow.map(row).join("") : `<div class="empty">Nothing scheduled for tomorrow yet.</div>`;
   h += `</div>`;
 
-  h += `<div class="card review-block"><h4>📋 Master list — all open to-dos <span class="count-chip">${master.length}</span></h4>`;
+  h += `<div class="greet" style="padding-top:20px"><div class="date">Master list</div><h2>All open to-dos 📋</h2></div>`;
+  h += `<div class="card review-block"><h4>Sorted by deadline — most urgent first <span class="count-chip">${master.length}</span></h4>`;
   h += master.length ? master.map(row).join("") : `<div class="empty">No open to-dos anywhere. Impressive!</div>`;
   h += `</div>`;
 
@@ -527,31 +597,15 @@ function renderResp(){
     const c = colorOf(r);
     h += `<div class="card" style="border-top:4px solid ${c}"><div class="card-top"><h3>${esc(r.name)}</h3>
       <div class="actions">
+        <span class="movebtns">
+          <button class="iconbtn" title="Move earlier" onclick="moveResp('${r.id}',-1)">◀</button>
+          <button class="iconbtn" title="Move later" onclick="moveResp('${r.id}',1)">▶</button>
+        </span>
         <button class="iconbtn" title="Edit name & colour" onclick="editRespName('${r.id}')">✏️</button>
         <button class="iconbtn" title="Archive" onclick="archiveResp('${r.id}',true)">📦</button>
       </div></div>`;
 
-    /* adhoc todos — the main content of the block */
-    h += `<div class="section-label">One-off to-dos</div>`;
-    const adhoc = (r.adhoc||[]).slice().sort((a,b)=> (a.done-b.done) || (a.deadline||"9999").localeCompare(b.deadline||"9999"));
-    if(!adhoc.length) h += `<div class="empty">No one-off to-dos.</div>`;
-    for(const td of adhoc){
-      h += `<div class="task ${td.done?"done":""}">
-        <input type="checkbox" ${td.done?"checked":""} onchange="toggleAdhoc('${r.id}','${td.id}')">
-        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, td.done)}
-          ${td.notes ? `<div class="notes">${esc(td.notes)}</div>`:""}
-        </div>
-        <button class="iconbtn" title="Edit / notes" onclick="editAdhoc('${r.id}','${td.id}')">✏️</button>
-        <button class="iconbtn" onclick="delAdhoc('${r.id}','${td.id}')">🗑️</button>
-      </div>`;
-    }
-    h += `<div class="addrow">
-      <input id="atext-${r.id}" placeholder="One-off to-do" onkeydown="if(event.key==='Enter')addAdhoc('${r.id}')">
-      <input type="date" id="adate-${r.id}">
-      <button class="btn small" onclick="addAdhoc('${r.id}')">Add</button>
-    </div>`;
-
-    /* weekly rhythm — collapsed by default */
+    /* weekly rhythm — collapsed by default, above to-dos */
     const weekly = r.weekly||[];
     const openW = !!expandedWeekly[r.id];
     h += `<button class="collapse-btn" onclick="expandedWeekly['${r.id}']=!expandedWeekly['${r.id}'];renderResp()">Weekly rhythm (${weekly.length}) <span>${openW?"▾":"▸"}</span></button>`;
@@ -573,6 +627,26 @@ function renderResp(){
         <button class="btn small" onclick="addWeekly('${r.id}')">Add</button>
       </div>`;
     }
+
+    /* adhoc todos — the main content of the block */
+    h += `<div class="section-label">One-off to-dos</div>`;
+    const adhoc = (r.adhoc||[]).slice().sort((a,b)=> (a.done-b.done) || (a.deadline||"9999").localeCompare(b.deadline||"9999"));
+    if(!adhoc.length) h += `<div class="empty">No one-off to-dos.</div>`;
+    for(const td of adhoc){
+      h += `<div class="task ${td.done?"done":""}">
+        <input type="checkbox" ${td.done?"checked":""} onchange="toggleAdhoc('${r.id}','${td.id}')">
+        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, td.done)}
+          ${td.notes ? `<div class="notes">${esc(td.notes)}</div>`:""}
+        </div>
+        <button class="iconbtn" title="Edit / notes" onclick="editAdhoc('${r.id}','${td.id}')">✏️</button>
+        <button class="iconbtn" onclick="delAdhoc('${r.id}','${td.id}')">🗑️</button>
+      </div>`;
+    }
+    h += `<div class="addrow">
+      <input id="atext-${r.id}" placeholder="One-off to-do" onkeydown="if(event.key==='Enter')addAdhoc('${r.id}')">
+      <input type="date" id="adate-${r.id}">
+      <button class="btn small" onclick="addAdhoc('${r.id}')">Add</button>
+    </div>`;
     h += `</div>`;
   }
   h += `</div>`;
@@ -618,38 +692,45 @@ function renderProj(){
     const open = todos.filter(x=>!x.done), done = todos.filter(x=>x.done);
     h += `<div class="card" style="border-top:4px solid ${c}"><div class="card-top"><div><h3>${esc(p.name)}</h3><div class="deadline-line">${dl}</div></div>
       <div class="actions">
+        <span class="movebtns">
+          <button class="iconbtn" title="Move earlier" onclick="moveProj('${p.id}',-1)">◀</button>
+          <button class="iconbtn" title="Move later" onclick="moveProj('${p.id}',1)">▶</button>
+        </span>
         <button class="iconbtn" title="Edit name, deadline & colour" onclick="editProj('${p.id}')">✏️</button>
         <button class="iconbtn" title="Archive" onclick="archiveProj('${p.id}',true)">📦</button>
       </div></div>`;
 
-    h += `<div class="section-label">To-dos</div>`;
-    if(!todos.length) h += `<div class="empty">No to-dos yet.</div>`;
-    const sorted = open.slice().sort((a,b)=>(a.deadline||"9999").localeCompare(b.deadline||"9999"));
-    for(const td of sorted){
-      h += `<div class="task">
-        <input type="checkbox" onchange="toggleProjTodo('${p.id}','${td.id}')">
-        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline)}
-          ${td.notes?`<div class="notes">${esc(td.notes)}</div>`:""}
-        </div>
-        <button class="iconbtn" title="Edit / notes" onclick="editProjTodo('${p.id}','${td.id}')">✏️</button>
-        <button class="iconbtn" onclick="delProjTodo('${p.id}','${td.id}')">🗑️</button>
-      </div>`;
-    }
-    if(done.length){
-      h += `<button class="archived-toggle" style="margin:8px 0 2px" onclick="showDoneProj['${p.id}']=!showDoneProj['${p.id}'];renderProj()">${showDoneProj[p.id]?"Hide":"Show"} completed (${done.length})</button>`;
-      if(showDoneProj[p.id]) for(const td of done){
-        h += `<div class="task done">
-          <input type="checkbox" checked onchange="toggleProjTodo('${p.id}','${td.id}')">
-          <div class="txt">${esc(td.text)}<div class="meta">done ${fmtDate(td.doneDate)}</div></div>
+    const openT = !!expandedProjTodos[p.id];
+    h += `<button class="collapse-btn" onclick="expandedProjTodos['${p.id}']=!expandedProjTodos['${p.id}'];renderProj()">To-dos (${open.length} open) <span>${openT?"▾":"▸"}</span></button>`;
+    if(openT){
+      if(!todos.length) h += `<div class="empty">No to-dos yet.</div>`;
+      const sorted = open.slice().sort((a,b)=>(a.deadline||"9999").localeCompare(b.deadline||"9999"));
+      for(const td of sorted){
+        h += `<div class="task">
+          <input type="checkbox" onchange="toggleProjTodo('${p.id}','${td.id}')">
+          <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline)}
+            ${td.notes?`<div class="notes">${esc(td.notes)}</div>`:""}
+          </div>
+          <button class="iconbtn" title="Edit / notes" onclick="editProjTodo('${p.id}','${td.id}')">✏️</button>
           <button class="iconbtn" onclick="delProjTodo('${p.id}','${td.id}')">🗑️</button>
         </div>`;
       }
+      if(done.length){
+        h += `<button class="archived-toggle" style="margin:8px 0 2px" onclick="showDoneProj['${p.id}']=!showDoneProj['${p.id}'];renderProj()">${showDoneProj[p.id]?"Hide":"Show"} completed (${done.length})</button>`;
+        if(showDoneProj[p.id]) for(const td of done){
+          h += `<div class="task done">
+            <input type="checkbox" checked onchange="toggleProjTodo('${p.id}','${td.id}')">
+            <div class="txt">${esc(td.text)}<div class="meta">done ${fmtDate(td.doneDate)}</div></div>
+            <button class="iconbtn" onclick="delProjTodo('${p.id}','${td.id}')">🗑️</button>
+          </div>`;
+        }
+      }
+      h += `<div class="addrow">
+        <input id="ptext-${p.id}" placeholder="New to-do" onkeydown="if(event.key==='Enter')addProjTodo('${p.id}')">
+        <input type="date" id="pdate-${p.id}">
+        <button class="btn small" onclick="addProjTodo('${p.id}')">Add</button>
+      </div>`;
     }
-    h += `<div class="addrow">
-      <input id="ptext-${p.id}" placeholder="New to-do" onkeydown="if(event.key==='Enter')addProjTodo('${p.id}')">
-      <input type="date" id="pdate-${p.id}">
-      <button class="btn small" onclick="addProjTodo('${p.id}')">Add</button>
-    </div>`;
     h += `</div>`;
   }
   h += `</div>`;
