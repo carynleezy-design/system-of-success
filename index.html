@@ -471,7 +471,7 @@ function renderToday(){
     $("view-today").innerHTML = `<div class="narrow">${h}</div>`; return;
   }
 
-  h += `<div class="card"><div id="todayList">${items.map(todayRow).join("")}</div>
+  h += `<div class="card"><div id="todayList" data-date="${t}">${items.map(todayRow).join("")}</div>
     <div class="deadline-line" style="margin-top:10px">Drag ⠿ to reorder your day · ✏️ to edit a task</div></div>`;
   $("view-today").innerHTML = `<div class="narrow">${h}</div>`;
 }
@@ -513,8 +513,12 @@ function tdDragEnd(e){
   e.currentTarget.classList.remove("dragging");
   if(!dragKey) return;
   dragKey = null;
-  const keys = [...document.querySelectorAll('#todayList .task')].map(x=>x.dataset.key);
-  saveDayOrder(todayStr(), keys);
+  const list = e.currentTarget.parentElement;
+  const date = list.dataset.date || todayStr();
+  const keys = [...list.querySelectorAll('.task')].map(x=>x.dataset.key);
+  // merge: this list's order first, then keep any other tasks already ordered for that date
+  const existing = dayOrder[date] || [];
+  saveDayOrder(date, keys.concat(existing.filter(k=>!keys.includes(k))));
 }
 
 /* ===================== REVIEW view ===================== */
@@ -528,39 +532,51 @@ function renderReview(){
     const doneToday = (r.completions||{})[t] || [];
     for(const w of (r.weekly||[])){
       const ed = `editWeekly('${r.id}','${w.id}')`;
+      const key = `w:${r.id}:${w.id}`;
       if(w.day === dowT){
         const item = {label:w.text, src:r.name, color:c, weekly:true, toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`, edit:ed};
-        if(doneToday.includes(w.id)) completed.push({...item, done:true}); else missed.push(item);
+        if(doneToday.includes(w.id)) completed.push({...item, done:true}); else missed.push({...item, key});
       }
-      if(w.day === dowTm) tomorrow.push({label:w.text, src:r.name, color:c, weekly:true, edit:ed});
+      if(w.day === dowTm) tomorrow.push({label:w.text, src:r.name, color:c, weekly:true, edit:ed, key});
     }
     for(const td of (r.adhoc||[])){
+      const key = `a:${r.id}:${td.id}`;
       const base = {label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes,
         toggle:`toggleAdhoc('${r.id}','${td.id}')`, edit:`editAdhoc('${r.id}','${td.id}')`};
       if(td.done && td.doneDate===t) completed.push({...base, done:true});
       if(!td.done){
         master.push(base);
-        if(td.deadline && td.deadline<=t) missed.push(base);
-        if(td.deadline===tm) tomorrow.push(base);
+        if(td.deadline && td.deadline<=t) missed.push({...base, key});
+        if(td.deadline===tm) tomorrow.push({...base, key});
       }
     }
   }
   for(const p of projs.filter(x=>!x.archived)){
     const c = colorOf(p);
     for(const td of (p.todos||[])){
+      const key = `p:${p.id}:${td.id}`;
       const base = {label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes,
         toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`};
       if(td.done && td.doneDate===t) completed.push({...base, done:true});
       if(!td.done){
         master.push(base);
-        if(td.deadline && td.deadline<=t) missed.push(base);
-        if(td.deadline===tm) tomorrow.push(base);
+        if(td.deadline && td.deadline<=t) missed.push({...base, key});
+        if(td.deadline===tm) tomorrow.push({...base, key});
       }
     }
   }
   master.sort((a,b)=>(a.deadline||"9999-99-99").localeCompare(b.deadline||"9999-99-99"));
+  // apply saved order to the reorderable sections
+  const bySaved = date => (a,b) => {
+    const s = dayOrder[date]||[];
+    const ia = s.indexOf(a.key), ib = s.indexOf(b.key);
+    return (ia<0?9999:ia) - (ib<0?9999:ib);
+  };
+  missed.sort(bySaved(t));
+  tomorrow.sort(bySaved(tm));
 
-  const row = i => `<div class="task ${i.done?"done":""}">
+  const row = i => `<div class="task ${i.done?"done":""}"${i.key ? ` draggable="true" data-key="${i.key}" ondragstart="tdDragStart(event)" ondragover="tdDragOver(event)" ondrop="tdDrop(event)" ondragend="tdDragEnd(event)"` : ""}>
+    ${i.key ? `<span class="draghandle">⠿</span>` : ""}
     ${i.toggle ? `<input type="checkbox" ${i.done?"checked":""} onchange="${i.toggle}">` : ""}
     <div class="txt">
       <div class="meta" style="margin:0 0 3px">${srcChip(i.src, i.color)}${i.weekly ? " · weekly" : ""}</div>
@@ -572,7 +588,7 @@ function renderReview(){
   let h = `<div class="greet"><div class="date">End-of-day review</div><h2>How today went 🌙</h2></div>`;
 
   h += `<div class="card review-block"><h4>⏳ Still open (was planned for today) <span class="count-chip">${missed.length}</span></h4>`;
-  h += missed.length ? missed.map(row).join("") : `<div class="empty">All clear — nothing slipped 🎉</div>`;
+  h += missed.length ? `<div data-date="${t}">${missed.map(row).join("")}</div>` : `<div class="empty">All clear — nothing slipped 🎉</div>`;
   h += `</div>`;
 
   h += `<div class="card review-block"><h4>✅ Completed today <span class="count-chip">${completed.length}</span></h4>`;
@@ -580,7 +596,7 @@ function renderReview(){
   h += `</div>`;
 
   h += `<div class="card review-block"><h4>📅 Coming up tomorrow <span class="count-chip">${tomorrow.length}</span></h4>`;
-  h += tomorrow.length ? tomorrow.map(row).join("") : `<div class="empty">Nothing scheduled for tomorrow yet.</div>`;
+  h += tomorrow.length ? `<div data-date="${tm}">${tomorrow.map(row).join("")}</div>` : `<div class="empty">Nothing scheduled for tomorrow yet.</div>`;
   h += `</div>`;
 
   h += `<div class="greet" style="padding-top:20px"><div class="date">Master list</div><h2>All open to-dos 📋</h2></div>`;
