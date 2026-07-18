@@ -494,9 +494,10 @@ function renderToday(){
         toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`});
     }
   }
-  // apply saved custom order for today
+  // apply saved custom order for today; completed tasks sink to the bottom
   const saved = dayOrder[t] || [];
   items.sort((a,b)=>{
+    if((a.done?1:0) !== (b.done?1:0)) return (a.done?1:0) - (b.done?1:0);
     const ia = saved.indexOf(a.key), ib = saved.indexOf(b.key);
     return (ia<0?9999:ia) - (ib<0?9999:ib);
   });
