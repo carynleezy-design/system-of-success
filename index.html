@@ -476,13 +476,13 @@ function renderToday(){
     for(const w of (r.weekly||[]).filter(w=>w.day===dow)){
       const done = ((r.completions||{})[t]||[]).includes(w.id);
       items.push({key:`w:${r.id}:${w.id}`, label:w.text, src:r.name, color:c, weekly:true, done,
-        toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`, edit:`editWeekly('${r.id}','${w.id}')`});
+        toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`, edit:`editWeekly('${r.id}','${w.id}')`, del:`delWeekly('${r.id}','${w.id}')`});
     }
     for(const td of (r.adhoc||[])){
       if(!td.deadline || td.deadline > t) continue;
       if(td.done && td.doneDate !== t) continue;
       items.push({key:`a:${r.id}:${td.id}`, label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes, done:td.done,
-        toggle:`toggleAdhoc('${r.id}','${td.id}')`, edit:`editAdhoc('${r.id}','${td.id}')`});
+        toggle:`toggleAdhoc('${r.id}','${td.id}')`, edit:`editAdhoc('${r.id}','${td.id}')`, del:`delAdhoc('${r.id}','${td.id}')`});
     }
   }
   for(const p of projs.filter(x=>!x.archived)){
@@ -491,7 +491,7 @@ function renderToday(){
       if(!td.deadline || td.deadline > t) continue;
       if(td.done && td.doneDate !== t) continue;
       items.push({key:`p:${p.id}:${td.id}`, label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes, done:td.done,
-        toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`});
+        toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`, del:`delProjTodo('${p.id}','${td.id}')`});
     }
   }
   // apply saved custom order for today; completed tasks sink to the bottom
@@ -537,6 +537,7 @@ function todayRow(i){
       ${notesHTML(i.notes)}
     </div>
     <button class="iconbtn" title="Edit" onclick="${i.edit}">✏️</button>
+    <button class="iconbtn" title="Delete" onclick="${i.del}">🗑️</button>
   </div>`;
 }
 /* drag to reorder today's tasks */
