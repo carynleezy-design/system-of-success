@@ -59,6 +59,7 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
 .badge.overdue{background:var(--red-soft);color:var(--red)}
 .badge.ok{background:var(--green-soft);color:var(--green)}
 .badge.plain{background:var(--accent-soft);color:var(--accent)}
+.badge.rep{background:#f0ecfa;color:#7a5bd0}
 
 .iconbtn{background:none;border:none;font-size:15px;color:var(--muted);padding:3px 5px;flex-shrink:0;opacity:.75}
 .iconbtn:hover{opacity:1}
@@ -296,6 +297,72 @@ const dot = c => `<span class="colordot" style="background:${c}"></span>`;
 const srcChip = (name,c) => `<span class="src-chip">${dot(c)}${esc(name)}</span>`;
 const notesHTML = n => n ? `<details class="notesbox"><summary>📝 notes</summary><div class="notes">${esc(n)}</div></details>` : "";
 
+/* ---------- repeating to-dos ---------- */
+const REPEAT_OPTS = [
+  {v:"none",     l:"Doesn't repeat"},
+  {v:"daily",    l:"Every day"},
+  {v:"weekdays", l:"Every weekday (Mon–Fri)"},
+  {v:"weekly",   l:"Every week"},
+  {v:"monthly",  l:"Every month"}
+];
+const isRepeating = td => td && td.repeat && td.repeat.type && td.repeat.type!=="none";
+function todoDone(td){
+  return isRepeating(td) ? (td.doneDates||[]).includes(todayStr()) : !!td.done;
+}
+function nextOccurrence(dateStr, rep){
+  const d = new Date((dateStr||todayStr())+"T00:00:00");
+  const n = Math.max(1, parseInt(rep.n,10)||1);
+  if(rep.type==="daily") d.setDate(d.getDate()+n);
+  else if(rep.type==="weekdays"){
+    for(let i=0;i<n;i++){ do{ d.setDate(d.getDate()+1); }while(d.getDay()===0||d.getDay()===6); }
+  }
+  else if(rep.type==="weekly") d.setDate(d.getDate()+7*n);
+  else if(rep.type==="monthly"){
+    const day = d.getDate();
+    d.setDate(1); d.setMonth(d.getMonth()+n);
+    d.setDate(Math.min(day, new Date(d.getFullYear(), d.getMonth()+1, 0).getDate()));
+  }
+  else d.setDate(d.getDate()+n);
+  return dstr(d);
+}
+function repeatLabel(rep){
+  if(!rep || rep.type==="none") return "";
+  const n = Math.max(1, parseInt(rep.n,10)||1);
+  const unit = {daily:"day", weekdays:"weekday", weekly:"week", monthly:"month"}[rep.type] || "day";
+  return n===1 ? `every ${unit}` : `every ${n} ${unit}s`;
+}
+const repeatBadge = td => isRepeating(td) ? `<span class="badge rep">🔁 ${repeatLabel(td.repeat)}</span>` : "";
+function repeatFields(td){
+  return [
+    {key:"reptype",label:"Repeats",type:"select",value:(td&&td.repeat&&td.repeat.type)||"none",options:REPEAT_OPTS},
+    {key:"repn",label:"Repeat every … (1 = every time, 2 = every other, etc.)",type:"number",value:String((td&&td.repeat&&td.repeat.n)||1)}
+  ];
+}
+const repeatFromValues = v => ({type:v.reptype||"none", n:Math.max(1, parseInt(v.repn,10)||1)});
+/* tick/untick — repeating to-dos roll forward to their next date instead of finishing */
+function toggleTodo(td){
+  const t = todayStr();
+  if(!isRepeating(td)){
+    td.done = !td.done; td.doneDate = td.done ? t : "";
+    return;
+  }
+  td.doneDates = td.doneDates || [];
+  if(td.doneDates.includes(t)){
+    td.doneDates = td.doneDates.filter(x=>x!==t);
+    td.deadline = td.prevDeadline || t;
+    td.prevDeadline = "";
+  }else{
+    td.doneDates.push(t);
+    if(td.doneDates.length > 60) td.doneDates = td.doneDates.slice(-60);
+    td.prevDeadline = td.deadline || t;
+    let nd = nextOccurrence(td.deadline || t, td.repeat);
+    let guard = 0;
+    while(nd <= t && guard++ < 500) nd = nextOccurrence(nd, td.repeat);
+    td.deadline = nd;
+  }
+  td.done = false; td.doneDate = "";
+}
+
 function getStoredConfig(){
   try{ return JSON.parse(localStorage.getItem("lp_firebase_config")||"null"); }catch(e){ return null; }
 }
@@ -479,18 +546,22 @@ function renderToday(){
         toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`, edit:`editWeekly('${r.id}','${w.id}')`, del:`delWeekly('${r.id}','${w.id}')`});
     }
     for(const td of (r.adhoc||[])){
-      if(!td.deadline || td.deadline > t) continue;
-      if(td.done && td.doneDate !== t) continue;
-      items.push({key:`a:${r.id}:${td.id}`, label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes, done:td.done,
+      const doneNow = todoDone(td);
+      const dueNow = td.deadline && td.deadline <= t;
+      if(!dueNow && !doneNow) continue;
+      if(!isRepeating(td) && td.done && td.doneDate !== t) continue;
+      items.push({key:`a:${r.id}:${td.id}`, label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes, done:doneNow, rep:repeatBadge(td),
         toggle:`toggleAdhoc('${r.id}','${td.id}')`, edit:`editAdhoc('${r.id}','${td.id}')`, del:`delAdhoc('${r.id}','${td.id}')`});
     }
   }
   for(const p of projs.filter(x=>!x.archived)){
     const c = colorOf(p);
     for(const td of (p.todos||[])){
-      if(!td.deadline || td.deadline > t) continue;
-      if(td.done && td.doneDate !== t) continue;
-      items.push({key:`p:${p.id}:${td.id}`, label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes, done:td.done,
+      const doneNow = todoDone(td);
+      const dueNow = td.deadline && td.deadline <= t;
+      if(!dueNow && !doneNow) continue;
+      if(!isRepeating(td) && td.done && td.doneDate !== t) continue;
+      items.push({key:`p:${p.id}:${td.id}`, label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes, done:doneNow, rep:repeatBadge(td),
         toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`, del:`delProjTodo('${p.id}','${td.id}')`});
     }
   }
@@ -533,7 +604,7 @@ function todayRow(i){
     <input type="checkbox" ${i.done?"checked":""} onchange="${i.toggle}">
     <div class="txt">
       <div class="meta" style="margin:0 0 3px">${srcChip(i.src,i.color)}${i.weekly?" · weekly":""}</div>
-      ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
+      ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}${i.rep||""}
       ${notesHTML(i.notes)}
     </div>
     <button class="iconbtn" title="Edit" onclick="${i.edit}">✏️</button>
@@ -593,10 +664,11 @@ function renderReview(){
     }
     for(const td of (r.adhoc||[])){
       const key = `a:${r.id}:${td.id}`;
-      const base = {label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes,
+      const base = {label:td.text, src:r.name, color:c, deadline:td.deadline, notes:td.notes, rep:repeatBadge(td),
         toggle:`toggleAdhoc('${r.id}','${td.id}')`, edit:`editAdhoc('${r.id}','${td.id}')`};
-      if(td.done && td.doneDate===t) completed.push({...base, done:true});
-      if(!td.done){
+      const doneNow = todoDone(td);
+      if(doneNow && (isRepeating(td) || td.doneDate===t)) completed.push({...base, done:true});
+      if(!doneNow){
         master.push(base);
         if(td.deadline && td.deadline<=t) missed.push({...base, key});
         if(td.deadline===tm) tomorrow.push({...base, key});
@@ -607,10 +679,11 @@ function renderReview(){
     const c = colorOf(p);
     for(const td of (p.todos||[])){
       const key = `p:${p.id}:${td.id}`;
-      const base = {label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes,
+      const base = {label:td.text, src:p.name, color:c, deadline:td.deadline, notes:td.notes, rep:repeatBadge(td),
         toggle:`toggleProjTodo('${p.id}','${td.id}')`, edit:`editProjTodo('${p.id}','${td.id}')`};
-      if(td.done && td.doneDate===t) completed.push({...base, done:true});
-      if(!td.done){
+      const doneNow = todoDone(td);
+      if(doneNow && (isRepeating(td) || td.doneDate===t)) completed.push({...base, done:true});
+      if(!doneNow){
         master.push(base);
         if(td.deadline && td.deadline<=t) missed.push({...base, key});
         if(td.deadline===tm) tomorrow.push({...base, key});
@@ -632,7 +705,7 @@ function renderReview(){
     ${i.toggle ? `<input type="checkbox" ${i.done?"checked":""} onchange="${i.toggle}">` : ""}
     <div class="txt">
       <div class="meta" style="margin:0 0 3px">${srcChip(i.src, i.color)}${i.weekly ? " · weekly" : ""}</div>
-      ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}
+      ${esc(i.label)} ${!i.done && i.deadline ? deadlineBadge(i.deadline) : ""}${i.rep||""}
       ${notesHTML(i.notes)}
     </div>
     ${i.edit ? `<button class="iconbtn" title="Edit / change deadline" onclick="${i.edit}">✏️</button>` : ""}
@@ -708,12 +781,13 @@ function renderResp(){
 
     /* adhoc todos — the main content of the block */
     h += `<div class="section-label">One-off to-dos</div>`;
-    const adhoc = (r.adhoc||[]).slice().sort((a,b)=> (a.done-b.done) || (a.deadline||"9999").localeCompare(b.deadline||"9999"));
+    const adhoc = (r.adhoc||[]).slice().sort((a,b)=> (todoDone(a)-todoDone(b)) || (a.deadline||"9999").localeCompare(b.deadline||"9999"));
     if(!adhoc.length) h += `<div class="empty">No one-off to-dos.</div>`;
     for(const td of adhoc){
-      h += `<div class="task ${td.done?"done":""}">
-        <input type="checkbox" ${td.done?"checked":""} onchange="toggleAdhoc('${r.id}','${td.id}')">
-        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, td.done)}
+      const dn = todoDone(td);
+      h += `<div class="task ${dn?"done":""}">
+        <input type="checkbox" ${dn?"checked":""} onchange="toggleAdhoc('${r.id}','${td.id}')">
+        <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline, dn)}${repeatBadge(td)}
           ${notesHTML(td.notes)}
         </div>
         <button class="iconbtn" title="Edit / notes" onclick="editAdhoc('${r.id}','${td.id}')">✏️</button>
@@ -762,7 +836,7 @@ function renderProj(){
          : `<span class="badge ok">${days} day${days===1?"":"s"} left · ${fmtDate(p.deadline)}</span>`;
     }
     const todos = (p.todos||[]);
-    const open = todos.filter(x=>!x.done), done = todos.filter(x=>x.done);
+    const open = todos.filter(x=>!todoDone(x)), done = todos.filter(x=>todoDone(x));
     h += `<div class="card" style="border-top:4px solid ${c}"><div class="card-top"><div><h3>${esc(p.name)}</h3><div class="deadline-line">${dl}</div></div>
       <div class="actions">
         <span class="movebtns">
@@ -781,7 +855,7 @@ function renderProj(){
       for(const td of sorted){
         h += `<div class="task">
           <input type="checkbox" onchange="toggleProjTodo('${p.id}','${td.id}')">
-          <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline)}
+          <div class="txt">${esc(td.text)} ${deadlineBadge(td.deadline)}${repeatBadge(td)}
             ${notesHTML(td.notes)}
           </div>
           <button class="iconbtn" title="Edit / notes" onclick="editProjTodo('${p.id}','${td.id}')">✏️</button>
@@ -879,10 +953,15 @@ function editAdhoc(rid, tid){
   const td=(r.adhoc||[]).find(x=>x.id===tid); if(!td) return;
   openModal("Edit to-do", [
     {key:"text",label:"To-do",type:"text",value:td.text},
-    {key:"deadline",label:"Deadline",type:"date",value:td.deadline||""},
+    {key:"deadline",label:"Deadline (next date if it repeats)",type:"date",value:td.deadline||""},
+    ...repeatFields(td),
     {key:"notes",label:"Notes",type:"textarea",value:td.notes||""}
   ], v=>{
-    if(v.text.trim()){ td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes; saveResp(r); }
+    if(v.text.trim()){
+      td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes;
+      td.repeat=repeatFromValues(v); td.doneDates=td.doneDates||[];
+      saveResp(r);
+    }
   });
 }
 function delAdhoc(rid, tid){
@@ -893,7 +972,7 @@ function delAdhoc(rid, tid){
 function toggleAdhoc(rid, tid){
   const r=findResp(rid); if(!r) return;
   const td=(r.adhoc||[]).find(x=>x.id===tid); if(!td) return;
-  td.done=!td.done; td.doneDate=td.done?todayStr():"";
+  toggleTodo(td);
   saveResp(r);
 }
 
@@ -928,10 +1007,15 @@ function editProjTodo(pid, tid){
   const td=(p.todos||[]).find(x=>x.id===tid); if(!td) return;
   openModal("Edit to-do", [
     {key:"text",label:"To-do",type:"text",value:td.text},
-    {key:"deadline",label:"Deadline",type:"date",value:td.deadline||""},
+    {key:"deadline",label:"Deadline (next date if it repeats)",type:"date",value:td.deadline||""},
+    ...repeatFields(td),
     {key:"notes",label:"Notes",type:"textarea",value:td.notes||""}
   ], v=>{
-    if(v.text.trim()){ td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes; saveProj(p); }
+    if(v.text.trim()){
+      td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes;
+      td.repeat=repeatFromValues(v); td.doneDates=td.doneDates||[];
+      saveProj(p);
+    }
   });
 }
 function delProjTodo(pid, tid){
@@ -942,7 +1026,7 @@ function delProjTodo(pid, tid){
 function toggleProjTodo(pid, tid){
   const p=findProj(pid); if(!p) return;
   const td=(p.todos||[]).find(x=>x.id===tid); if(!td) return;
-  td.done=!td.done; td.doneDate=td.done?todayStr():"";
+  toggleTodo(td);
   saveProj(p);
 }
 
@@ -955,14 +1039,17 @@ function openAddTodo(){
   opts.push({v:"new-p", l:"➕ Create new project…"});
   openModal("Add a to-do", [
     {key:"text",label:"To-do",type:"text",value:""},
-    {key:"deadline",label:"Deadline",type:"date",value:""},
+    {key:"deadline",label:"Deadline (first date if it repeats)",type:"date",value:""},
+    ...repeatFields(null),
     {key:"cat",label:"Belongs to",type:"select",value:opts[0].v,options:opts},
     {key:"newname",label:"New name — only needed if creating new above",type:"text",value:""},
     {key:"notes",label:"Notes (optional)",type:"textarea",value:""}
   ], v=>{
     const text = v.text.trim();
     if(!text) return;
-    const todo = {id:uid(), text, deadline:v.deadline||"", notes:v.notes||"", done:false, doneDate:""};
+    const rep = repeatFromValues(v);
+    if(rep.type!=="none" && !v.deadline){ alert("A repeating to-do needs a first date — please set the deadline."); return; }
+    const todo = {id:uid(), text, deadline:v.deadline||"", notes:v.notes||"", done:false, doneDate:"", repeat:rep, doneDates:[]};
     if(v.cat==="new-r" || v.cat==="new-p"){
       const name = v.newname.trim();
       if(!name){ alert("You picked 'create new' — please give it a name."); return; }
@@ -993,6 +1080,7 @@ function openModal(title, fields, cb){
     if(f.type==="select") inp=`<select id="mf-${i}">${f.options.map(o=>`<option value="${o.v}" ${o.v===f.value?"selected":""}>${o.l}</option>`).join("")}</select>`;
     else if(f.type==="textarea") inp=`<textarea id="mf-${i}" rows="4">${esc(f.value)}</textarea>`;
     else if(f.type==="swatch") inp=`<div class="swatches" id="mf-${i}" data-value="${f.value}">${PALETTE.map(c=>`<span style="background:${c}" class="${c===f.value?"sel":""}" onclick="pickSwatch(this,'${c}')"></span>`).join("")}</div>`;
+    else if(f.type==="number") inp=`<input id="mf-${i}" type="number" min="1" step="1" value="${esc(f.value)}">`;
     else inp=`<input id="mf-${i}" type="${f.type}" value="${esc(f.value)}">`;
     return `<label>${f.label}</label>${inp}`;
   }).join("");
