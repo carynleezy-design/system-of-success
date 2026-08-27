@@ -508,7 +508,24 @@ function switchTab(t){
 }
 function renderAll(){
   if(!user) return;
+  purgeOldCompleted();
   renderToday(); renderReview(); renderResp(); renderProj();
+}
+/* completed one-off to-dos are cleared out a week after they were ticked */
+function purgeOldCompleted(){
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-7);
+  const c = dstr(cutoff);
+  const stale = td => td.done && td.doneDate && td.doneDate < c;   // repeating to-dos never set done, so they're safe
+  for(const r of resps){
+    const list = r.adhoc||[];
+    const kept = list.filter(td=>!stale(td));
+    if(kept.length !== list.length){ r.adhoc = kept; saveResp(r); }
+  }
+  for(const p of projs){
+    const list = p.todos||[];
+    const kept = list.filter(td=>!stale(td));
+    if(kept.length !== list.length){ p.todos = kept; saveProj(p); }
+  }
 }
 
 /* ===================== TODAY view ===================== */
@@ -1039,7 +1056,7 @@ function openAddTodo(){
   opts.push({v:"new-p", l:"➕ Create new project…"});
   openModal("Add a to-do", [
     {key:"text",label:"To-do",type:"text",value:""},
-    {key:"deadline",label:"Deadline (first date if it repeats)",type:"date",value:""},
+    {key:"deadline",label:"Deadline (first date if it repeats)",type:"date",value:todayStr()},
     ...repeatFields(null),
     {key:"cat",label:"Belongs to",type:"select",value:opts[0].v,options:opts},
     {key:"newname",label:"New name — only needed if creating new above",type:"text",value:""},
@@ -1084,6 +1101,10 @@ function openModal(title, fields, cb){
     else inp=`<input id="mf-${i}" type="${f.type}" value="${esc(f.value)}">`;
     return `<label>${f.label}</label>${inp}`;
   }).join("");
+  // Enter saves (except inside the multi-line notes box)
+  $("modalFields").onkeydown = e => {
+    if(e.key==="Enter" && e.target && e.target.tagName!=="TEXTAREA"){ e.preventDefault(); modalSave(); }
+  };
   $("modalBack").classList.add("open");
   setTimeout(()=>{ const el=$("mf-0"); if(el && modalFieldDefs[0].type==="text") el.focus(); },50);
 }
