@@ -38,6 +38,8 @@ body.dark .modal-back{background:rgba(0,0,0,.6)}
 body.dark input[type=date]{color-scheme:dark}
 body{transition:background .3s,color .3s}
 .themebtn{background:none;border:none;font-size:16px;padding:2px 6px;line-height:1}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%) translateY(20px);background:var(--ink);color:var(--bg);font-size:13.5px;font-weight:600;padding:9px 18px;border-radius:999px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:200;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;padding-bottom:90px}
 button{font-family:inherit;cursor:pointer}
@@ -455,7 +457,7 @@ function signOut(){ auth.signOut(); }
 
 /* ===================== data sync ===================== */
 function col(name){ return db.collection("users").doc(user.uid).collection(name); }
-function stopListening(){ unsubs.forEach(u=>u()); unsubs=[]; resps=[]; projs=[]; }
+function stopListening(){ unsubs.forEach(u=>u()); unsubs=[]; resps=[]; projs=[]; pendingUndo=null; }
 function listen(){
   stopListening();
   unsubs.push(col("responsibilities").onSnapshot(snap => {
@@ -474,6 +476,7 @@ function listen(){
   }, e => {}));
 }
 function saveDayOrder(date, keys){
+  snapDayOrder();
   dayOrder[date] = keys;
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-14);
   const c = dstr(cutoff), orders = {};
@@ -481,10 +484,65 @@ function saveDayOrder(date, keys){
   dayOrder = orders;
   col("meta").doc("dayOrder").set({orders});
 }
+
+/* ===================== undo (Cmd/Ctrl+Z) =====================
+   Every mutating action calls snapResp()/snapProj()/snapDayOrder() as its
+   very first step — BEFORE finding or mutating any object — so the
+   snapshot captures the true "before" state even though our action
+   functions mutate objects in place (in-place mutation means capturing
+   state any later, e.g. inside saveResp() or the Firestore listener,
+   would already see the "after" values). */
+let pendingUndo = null;
+function deepClone(x){ return JSON.parse(JSON.stringify(x)); }
+function snapResp(){ pendingUndo = {kind:"resp", data:deepClone(resps)}; }
+function snapProj(){ pendingUndo = {kind:"proj", data:deepClone(projs)}; }
+function snapDayOrder(){ pendingUndo = {kind:"dayOrder", data:deepClone(dayOrder)}; }
+function showToast(msg){
+  let t = $("toast");
+  if(!t){
+    t = document.createElement("div");
+    t.id = "toast";
+    t.className = "toast";
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(showToast._h);
+  showToast._h = setTimeout(()=>t.classList.remove("show"), 2200);
+}
+function performUndo(){
+  if(!pendingUndo){ showToast("Nothing to undo"); return; }
+  const {kind, data} = pendingUndo;
+  pendingUndo = null; // single-level undo
+  if(kind==="resp"){
+    const prevIds = new Set(data.map(r=>r.id));
+    data.forEach(r=>{ const {id,...rest}=r; col("responsibilities").doc(id).set(rest); });
+    resps.forEach(r=>{ if(!prevIds.has(r.id)) col("responsibilities").doc(r.id).delete(); });
+  }else if(kind==="proj"){
+    const prevIds = new Set(data.map(p=>p.id));
+    data.forEach(p=>{ const {id,...rest}=p; col("projects").doc(id).set(rest); });
+    projs.forEach(p=>{ if(!prevIds.has(p.id)) col("projects").doc(p.id).delete(); });
+  }else if(kind==="dayOrder"){
+    col("meta").doc("dayOrder").set({orders:data});
+  }
+  showToast("Undid last change ↩️");
+}
+document.addEventListener("keydown", e => {
+  const key = (e.key||"").toLowerCase();
+  if((e.metaKey||e.ctrlKey) && key==="z" && !e.shiftKey){
+    const tag = (e.target && e.target.tagName) || "";
+    const editable = tag==="INPUT" || tag==="TEXTAREA" || (e.target && e.target.isContentEditable);
+    if(editable) return; // let normal text-undo happen while typing
+    if(!user) return;
+    e.preventDefault();
+    performUndo();
+  }
+});
 function moveResp(id, dir){
   const list = resps.filter(r=>!r.archived);
   const i = list.findIndex(r=>r.id===id), j = i+dir;
   if(i<0 || j<0 || j>=list.length) return;
+  snapResp();
   [list[i], list[j]] = [list[j], list[i]];
   list.forEach((r,idx)=>{ if(r.order!==idx){ r.order=idx; saveResp(r); } });
 }
@@ -492,6 +550,7 @@ function moveProj(id, dir){
   const list = projs.filter(p=>!p.archived);
   const i = list.findIndex(p=>p.id===id), j = i+dir;
   if(i<0 || j<0 || j>=list.length) return;
+  snapProj();
   [list[i], list[j]] = [list[j], list[i]];
   list.forEach((p,idx)=>{ if(p.order!==idx){ p.order=idx; saveProj(p); } });
 }
@@ -512,8 +571,8 @@ function saveProj(p){
   const {id, ...data} = p;
   col("projects").doc(id).set(data);
 }
-function deleteResp(id){ col("responsibilities").doc(id).delete(); }
-function deleteProj(id){ col("projects").doc(id).delete(); }
+function deleteResp(id){ snapResp(); col("responsibilities").doc(id).delete(); }
+function deleteProj(id){ snapProj(); col("projects").doc(id).delete(); }
 function pruneCompletions(r){
   if(!r.completions) return;
   const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-120);
@@ -943,23 +1002,25 @@ function findProj(id){ return projs.find(p=>p.id===id); }
 function addResp(){
   const name = $("newRespName").value.trim();
   if(!name) return;
+  snapResp();
   const color = PALETTE[resps.length % PALETTE.length];
   saveResp({id:uid(), name, color, archived:false, createdAt:Date.now(), weekly:[], adhoc:[], completions:{}});
   $("newRespName").value="";
 }
-function archiveResp(id, val){ const r=findResp(id); if(r){ r.archived=val; saveResp(r);} }
+function archiveResp(id, val){ const r=findResp(id); if(r){ snapResp(); r.archived=val; saveResp(r);} }
 function editRespName(id){
   const r=findResp(id); if(!r) return;
   openModal("Edit responsibility", [
     {key:"name",label:"Name",type:"text",value:r.name},
     {key:"color",label:"Colour",type:"swatch",value:colorOf(r)}
   ], v=>{
-    if(v.name.trim()){ r.name=v.name.trim(); r.color=v.color; saveResp(r); }
+    if(v.name.trim()){ snapResp(); r.name=v.name.trim(); r.color=v.color; saveResp(r); }
   });
 }
 function addWeekly(rid){
   const r=findResp(rid); if(!r) return;
   const text=$("wtext-"+rid).value.trim(); if(!text) return;
+  snapResp();
   const day=parseInt($("wday-"+rid).value,10);
   r.weekly=r.weekly||[]; r.weekly.push({id:uid(), day, text});
   saveResp(r);
@@ -971,16 +1032,18 @@ function editWeekly(rid, wid){
     {key:"text",label:"Task",type:"text",value:w.text},
     {key:"day",label:"Day of week",type:"select",value:String(w.day),options:DAY_ORDER.map(d=>({v:String(d),l:DAYS[d]}))}
   ], v=>{
-    if(v.text.trim()){ w.text=v.text.trim(); w.day=parseInt(v.day,10); saveResp(r); }
+    if(v.text.trim()){ snapResp(); w.text=v.text.trim(); w.day=parseInt(v.day,10); saveResp(r); }
   });
 }
 function delWeekly(rid, wid){
   const r=findResp(rid); if(!r) return;
   if(!confirm("Delete this weekly task?")) return;
+  snapResp();
   r.weekly=(r.weekly||[]).filter(x=>x.id!==wid); saveResp(r);
 }
 function toggleWeekly(rid, wid, dateStr){
   const r=findResp(rid); if(!r) return;
+  snapResp();
   r.completions=r.completions||{};
   const arr=r.completions[dateStr]||[];
   r.completions[dateStr]= arr.includes(wid) ? arr.filter(x=>x!==wid) : [...arr, wid];
@@ -989,6 +1052,7 @@ function toggleWeekly(rid, wid, dateStr){
 function addAdhoc(rid){
   const r=findResp(rid); if(!r) return;
   const text=$("atext-"+rid).value.trim(); if(!text) return;
+  snapResp();
   const deadline=$("adate-"+rid).value||"";
   r.adhoc=r.adhoc||[]; r.adhoc.push({id:uid(), text, deadline, done:false, doneDate:""});
   saveResp(r);
@@ -1003,6 +1067,7 @@ function editAdhoc(rid, tid){
     {key:"notes",label:"Notes",type:"textarea",value:td.notes||""}
   ], v=>{
     if(v.text.trim()){
+      snapResp();
       td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes;
       td.repeat=repeatFromValues(v); td.doneDates=td.doneDates||[];
       saveResp(r);
@@ -1012,11 +1077,13 @@ function editAdhoc(rid, tid){
 function delAdhoc(rid, tid){
   const r=findResp(rid); if(!r) return;
   if(!confirm("Delete this to-do?")) return;
+  snapResp();
   r.adhoc=(r.adhoc||[]).filter(x=>x.id!==tid); saveResp(r);
 }
 function toggleAdhoc(rid, tid){
   const r=findResp(rid); if(!r) return;
   const td=(r.adhoc||[]).find(x=>x.id===tid); if(!td) return;
+  snapResp();
   toggleTodo(td);
   saveResp(r);
 }
@@ -1024,12 +1091,13 @@ function toggleAdhoc(rid, tid){
 /* ===================== actions: projects ===================== */
 function addProj(){
   const name=$("newProjName").value.trim(); if(!name) return;
+  snapProj();
   const deadline=$("newProjDate").value||"";
   const color = PALETTE[projs.length % PALETTE.length];
   saveProj({id:uid(), name, deadline, color, archived:false, createdAt:Date.now(), todos:[]});
   $("newProjName").value=""; $("newProjDate").value="";
 }
-function archiveProj(id, val){ const p=findProj(id); if(p){ p.archived=val; saveProj(p);} }
+function archiveProj(id, val){ const p=findProj(id); if(p){ snapProj(); p.archived=val; saveProj(p);} }
 function editProj(id){
   const p=findProj(id); if(!p) return;
   openModal("Edit project", [
@@ -1037,12 +1105,13 @@ function editProj(id){
     {key:"deadline",label:"Projected deadline",type:"date",value:p.deadline||""},
     {key:"color",label:"Colour",type:"swatch",value:colorOf(p)}
   ], v=>{
-    if(v.name.trim()){ p.name=v.name.trim(); p.deadline=v.deadline; p.color=v.color; saveProj(p); }
+    if(v.name.trim()){ snapProj(); p.name=v.name.trim(); p.deadline=v.deadline; p.color=v.color; saveProj(p); }
   });
 }
 function addProjTodo(pid){
   const p=findProj(pid); if(!p) return;
   const text=$("ptext-"+pid).value.trim(); if(!text) return;
+  snapProj();
   const deadline=$("pdate-"+pid).value||"";
   p.todos=p.todos||[]; p.todos.push({id:uid(), text, deadline, notes:"", done:false, doneDate:""});
   saveProj(p);
@@ -1057,6 +1126,7 @@ function editProjTodo(pid, tid){
     {key:"notes",label:"Notes",type:"textarea",value:td.notes||""}
   ], v=>{
     if(v.text.trim()){
+      snapProj();
       td.text=v.text.trim(); td.deadline=v.deadline; td.notes=v.notes;
       td.repeat=repeatFromValues(v); td.doneDates=td.doneDates||[];
       saveProj(p);
@@ -1066,11 +1136,13 @@ function editProjTodo(pid, tid){
 function delProjTodo(pid, tid){
   const p=findProj(pid); if(!p) return;
   if(!confirm("Delete this to-do?")) return;
+  snapProj();
   p.todos=(p.todos||[]).filter(x=>x.id!==tid); saveProj(p);
 }
 function toggleProjTodo(pid, tid){
   const p=findProj(pid); if(!p) return;
   const td=(p.todos||[]).find(x=>x.id===tid); if(!td) return;
+  snapProj();
   toggleTodo(td);
   saveProj(p);
 }
@@ -1099,17 +1171,21 @@ function openAddTodo(){
       const name = v.newname.trim();
       if(!name){ alert("You picked 'create new' — please give it a name."); return; }
       if(v.cat==="new-r"){
+        snapResp();
         saveResp({id:uid(), name, color:PALETTE[resps.length%PALETTE.length], archived:false, createdAt:Date.now(), weekly:[], adhoc:[todo], completions:{}});
       }else{
+        snapProj();
         saveProj({id:uid(), name, deadline:"", color:PALETTE[projs.length%PALETTE.length], archived:false, createdAt:Date.now(), todos:[todo]});
       }
       return;
     }
     if(v.cat.startsWith("r:")){
       const r = findResp(v.cat.slice(2)); if(!r) return;
+      snapResp();
       r.adhoc = r.adhoc||[]; r.adhoc.push(todo); saveResp(r);
     }else{
       const p = findProj(v.cat.slice(2)); if(!p) return;
+      snapProj();
       p.todos = p.todos||[]; p.todos.push(todo); saveProj(p);
     }
   });
