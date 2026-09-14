@@ -740,7 +740,10 @@ function renderReview(){
     return (ia<0?9999:ia) - (ib<0?9999:ib);
   };
   missed.sort(bySaved(t));
-  tomorrow.sort(bySaved(tm));
+  tomorrow.sort((a,b)=>{
+    if((a.done?1:0) !== (b.done?1:0)) return (a.done?1:0) - (b.done?1:0);
+    return bySaved(tm)(a,b);
+  });
 
   const row = i => `<div class="task ${i.done?"done":""}"${i.key ? ` draggable="true" data-key="${i.key}" ondragstart="tdDragStart(event)" ondragover="tdDragOver(event)" ondrop="tdDrop(event)" ondragend="tdDragEnd(event)"` : ""}>
     ${i.key ? `<span class="draghandle">⠿</span>` : ""}
