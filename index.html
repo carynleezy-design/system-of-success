@@ -693,6 +693,7 @@ function renderReview(){
   for(const r of resps.filter(x=>!x.archived)){
     const c = colorOf(r);
     const doneToday = (r.completions||{})[t] || [];
+    const doneTomorrow = (r.completions||{})[tm] || [];
     for(const w of (r.weekly||[])){
       const ed = `editWeekly('${r.id}','${w.id}')`;
       const key = `w:${r.id}:${w.id}`;
@@ -700,7 +701,8 @@ function renderReview(){
         const item = {label:w.text, src:r.name, color:c, weekly:true, toggle:`toggleWeekly('${r.id}','${w.id}','${t}')`, edit:ed};
         if(doneToday.includes(w.id)) completed.push({...item, done:true}); else missed.push({...item, key});
       }
-      if(w.day === dowTm) tomorrow.push({label:w.text, src:r.name, color:c, weekly:true, edit:ed, key});
+      if(w.day === dowTm) tomorrow.push({label:w.text, src:r.name, color:c, weekly:true, edit:ed, key,
+        toggle:`toggleWeekly('${r.id}','${w.id}','${tm}')`, done:doneTomorrow.includes(w.id)});
     }
     for(const td of (r.adhoc||[])){
       const key = `a:${r.id}:${td.id}`;
