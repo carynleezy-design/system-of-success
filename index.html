@@ -179,12 +179,14 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
 
 /* today: task list + notes side panel */
 .today-wrap{max-width:1080px;margin:0 auto}
-.today-layout{display:flex;gap:16px;align-items:stretch}
+.today-layout{display:flex;gap:16px;align-items:flex-start}
 .today-layout .today-tasks{flex:1.6;min-width:0;margin-bottom:0}
-.today-layout .today-notes{flex:1;min-width:0;margin-bottom:0;display:flex;flex-direction:column}
-.today-notes textarea{flex:1;min-height:280px;resize:vertical;line-height:1.55;font-family:inherit}
+.today-layout .today-notes{flex:1;min-width:0;margin-bottom:0;display:flex;flex-direction:column;
+  position:sticky;top:16px;max-height:calc(100vh - 190px)}
+.today-notes textarea{flex:1;min-height:200px;resize:vertical;line-height:1.55;font-family:inherit}
 @media(max-width:800px){
   .today-layout{flex-direction:column}
+  .today-notes{position:static;max-height:none}
   .today-notes textarea{min-height:160px}
 }
 
