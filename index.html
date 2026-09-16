@@ -177,6 +177,17 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
   .plate-divider{width:100%;height:1.5px;margin:12px 0}
 }
 
+/* today: task list + notes side panel */
+.today-wrap{max-width:1080px;margin:0 auto}
+.today-layout{display:flex;gap:16px;align-items:stretch}
+.today-layout .today-tasks{flex:1.6;min-width:0;margin-bottom:0}
+.today-layout .today-notes{flex:1;min-width:0;margin-bottom:0;display:flex;flex-direction:column}
+.today-notes textarea{flex:1;min-height:280px;resize:vertical;line-height:1.55;font-family:inherit}
+@media(max-width:800px){
+  .today-layout{flex-direction:column}
+  .today-notes textarea{min-height:160px}
+}
+
 /* compact phone layout */
 @media(max-width:600px){
   header h1{font-size:17px}
@@ -315,7 +326,7 @@ function deadlineBadge(s, done){
 let db=null, auth=null, user=null;
 let resps=[], projs=[];   // live data
 let unsubs=[];
-let showArchivedResp=false, showArchivedProj=false, showDoneProj={}, expandedWeekly={}, expandedProjTodos={}, dayOrder={};
+let showArchivedResp=false, showArchivedProj=false, showDoneProj={}, expandedWeekly={}, expandedProjTodos={}, dayOrder={}, dailyNotes={};
 const PALETTE = ["#5b6ee8","#2fa36b","#c98a1b","#d9534f","#8e5be8","#1f9e9e","#d15b9e","#6b7280"];
 const colorOf = x => x.color || PALETTE[0];
 const dot = c => `<span class="colordot" style="background:${c}"></span>`;
@@ -457,7 +468,7 @@ function signOut(){ auth.signOut(); }
 
 /* ===================== data sync ===================== */
 function col(name){ return db.collection("users").doc(user.uid).collection(name); }
-function stopListening(){ unsubs.forEach(u=>u()); unsubs=[]; resps=[]; projs=[]; pendingUndo=null; }
+function stopListening(){ unsubs.forEach(u=>u()); unsubs=[]; resps=[]; projs=[]; dayOrder={}; dailyNotes={}; pendingUndo=null; }
 function listen(){
   stopListening();
   unsubs.push(col("responsibilities").onSnapshot(snap => {
@@ -474,6 +485,10 @@ function listen(){
     dayOrder = (d.data()||{}).orders || {};
     renderAll();
   }, e => {}));
+  unsubs.push(col("meta").doc("dailyNotes").onSnapshot(d => {
+    dailyNotes = (d.data()||{}).notes || {};
+    renderAll();
+  }, e => {}));
 }
 function saveDayOrder(date, keys){
   snapDayOrder();
@@ -483,6 +498,21 @@ function saveDayOrder(date, keys){
   for(const k of Object.keys(dayOrder)) if(k >= c) orders[k] = dayOrder[k];
   dayOrder = orders;
   col("meta").doc("dayOrder").set({orders});
+}
+/* daily notes: free-text scratchpad, one per calendar day, debounced save */
+let dailyNotesTimer = null;
+function onDailyNotesInput(val){
+  const t = todayStr();
+  dailyNotes[t] = val; // keep local copy current immediately
+  clearTimeout(dailyNotesTimer);
+  dailyNotesTimer = setTimeout(()=>saveDailyNotes(t, val), 500);
+}
+function saveDailyNotes(date, val){
+  const notes = {...dailyNotes, [date]: val};
+  const cutoff = new Date(); cutoff.setDate(cutoff.getDate()-60);
+  const c = dstr(cutoff);
+  for(const k of Object.keys(notes)) if(k < c) delete notes[k];
+  col("meta").doc("dailyNotes").set({notes});
 }
 
 /* ===================== undo (Cmd/Ctrl+Z) =====================
@@ -687,14 +717,37 @@ function renderToday(){
   }
   h += `</div>`;
 
+  let tasksHtml;
   if(total===0){
-    h += `<div class="big-empty"><div class="e">🎈</div>Nothing scheduled for today.<br>Add weekly rhythms under <b>Responsibilities</b> or tap ＋ to add a to-do.</div>`;
-    $("view-today").innerHTML = `<div class="narrow">${h}</div>`; return;
+    tasksHtml = `<div class="card"><div class="big-empty"><div class="e">🎈</div>Nothing scheduled for today.<br>Add weekly rhythms under <b>Responsibilities</b> or tap ＋ to add a to-do.</div></div>`;
+  }else{
+    tasksHtml = `<div class="card"><div id="todayList" data-date="${t}">${items.map(todayRow).join("")}</div>
+      <div class="deadline-line" style="margin-top:10px">Drag ⠿ to reorder your day · ✏️ to edit a task</div></div>`;
   }
 
-  h += `<div class="card"><div id="todayList" data-date="${t}">${items.map(todayRow).join("")}</div>
-    <div class="deadline-line" style="margin-top:10px">Drag ⠿ to reorder your day · ✏️ to edit a task</div></div>`;
-  $("view-today").innerHTML = `<div class="narrow">${h}</div>`;
+  const notesHtml = `<div class="card today-notes">
+    <div class="section-label">📝 Notes for today</div>
+    <textarea id="dailyNotesBox" placeholder="Dump your thoughts, plan your day…" oninput="onDailyNotesInput(this.value)"></textarea>
+  </div>`;
+
+  h += `<div class="today-layout"><div class="today-tasks">${tasksHtml}</div>${notesHtml}</div>`;
+
+  // preserve cursor/scroll/focus across re-renders (e.g. background syncs while typing)
+  const prevBox = $("dailyNotesBox");
+  const wasFocused = document.activeElement === prevBox;
+  const sel = wasFocused ? [prevBox.selectionStart, prevBox.selectionEnd, prevBox.scrollTop] : null;
+
+  $("view-today").innerHTML = `<div class="today-wrap">${h}</div>`;
+
+  const box = $("dailyNotesBox");
+  if(box){
+    box.value = dailyNotes[t] || "";
+    if(wasFocused){
+      box.focus();
+      box.setSelectionRange(sel[0], sel[1]);
+      box.scrollTop = sel[2];
+    }
+  }
 }
 function todayRow(i){
   return `<div class="task ${i.done?"done":""}" draggable="true" data-key="${i.key}"
