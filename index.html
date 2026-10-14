@@ -187,7 +187,8 @@ main{max-width:1080px;margin:0 auto;padding:6px 16px}
   position:sticky;top:16px;max-height:calc(100vh - 190px)}
 .today-notes textarea{flex:1;min-height:200px;resize:vertical;line-height:1.55;font-family:inherit}
 @media(max-width:800px){
-  .today-layout{flex-direction:column}
+  .today-layout{flex-direction:column;align-items:stretch}
+  .today-layout .today-tasks,.today-layout .today-notes{flex:none;width:100%}
   .today-notes{position:static;max-height:none}
   .today-notes textarea{min-height:160px}
 }
